@@ -25,9 +25,9 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
   if (!env.GEMINI_API_KEY) throw new ProviderError("GEMINI_API_KEY eksik", 500);
   // Akışlı uç nokta: uzun üretimlerde bağlantı boşta kalıp zaman aşımına düşmesin.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:streamGenerateContent?alt=sse`;
-  const res = await fetch(url, {
+  const call = () => fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+    headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: "user", parts: [{ text: userMessage }] }],
@@ -40,6 +40,14 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
       },
     }),
   });
+  // Ücretsiz katmanda "yoğunluk" (503/500) geçicidir: kısa beklemelerle 3 kez dene.
+  let res = await call();
+  for (const wait of [2000, 6000]) {
+    if (res.status !== 503 && res.status !== 500) break;
+    await new Promise((r) => setTimeout(r, wait));
+    res = await call();
+  }
+  if (res.status === 503) throw new ProviderError("Google şu an çok yoğun, birkaç dakika sonra tekrar dene.", 503);
   if (res.status === 429) throw new ProviderError("Günlük ücretsiz kota doldu, biraz sonra tekrar dene.", 429);
   if (!res.ok || !res.body) throw new ProviderError(`Gemini hatası ${res.status}: ${(await res.text()).slice(0, 300)}`);
 
