@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GeneratedApp, OUTPUT_SCHEMA, SYSTEM_PROMPT } from "./prompt";
+import { GeneratedApp, JSON_OUTPUT_RULES, OUTPUT_SCHEMA, SYSTEM_PROMPT, TEXT_OUTPUT_RULES, parseTextOutput } from "./prompt";
 
 export type Env = {
   AI_PROVIDER: string;
@@ -18,8 +18,6 @@ export class ProviderError extends Error {
   }
 }
 
-// Gemini'nin responseSchema'sı additionalProperties desteklemez; onu çıkarıyoruz.
-const { additionalProperties: _ignored, ...geminiSchema } = OUTPUT_SCHEMA;
 
 async function generateWithGemini(env: Env, userMessage: string): Promise<GeneratedApp> {
   if (!env.GEMINI_API_KEY) throw new ProviderError("GEMINI_API_KEY eksik", 500);
@@ -29,11 +27,9 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT + TEXT_OUTPUT_RULES }] },
       contents: [{ role: "user", parts: [{ text: userMessage }] }],
       generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: geminiSchema,
         maxOutputTokens: 32000,
         // Düşünme seviyesi düşük = çok daha hızlı üretim. Boş bırakılırsa modelin varsayılanı kullanılır.
         ...(env.GEMINI_THINKING ? { thinkingConfig: { thinkingLevel: env.GEMINI_THINKING } } : {}),
@@ -79,7 +75,7 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
     return { name: "", emoji: "", description: "", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
   }
   if (!text) throw new ProviderError("Gemini boş yanıt döndü");
-  return JSON.parse(text) as GeneratedApp;
+  return parseTextOutput(text);
 }
 
 async function generateWithAnthropic(env: Env, userMessage: string): Promise<GeneratedApp> {
@@ -93,7 +89,7 @@ async function generateWithAnthropic(env: Env, userMessage: string): Promise<Gen
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-        system: SYSTEM_PROMPT,
+        system: SYSTEM_PROMPT + JSON_OUTPUT_RULES,
         messages: [{ role: "user", content: userMessage }],
       })
       .finalMessage();

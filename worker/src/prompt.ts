@@ -14,9 +14,45 @@ Teknik kurallar (kesin):
 - Uygulama ilk açılışta boş görünmesin: anlamlı bir başlangıç ekranı veya örnek içerik göster.
 
 Yapmayacakların:
-- Sağlık, hukuk veya yatırım tavsiyesi veren uygulamalar; kişisel veri toplayan formlar; bilinen markaların, uygulamaların ya da oyunların kopyaları (adı, görünümü, karakterleri); yasa dışı, cinsel, nefret içeren veya zarar verici içerik. Böyle bir istek gelirse "refused": true döndür ve "refusal_reason" alanına kullanıcıya gösterilecek kısa, kibar bir Türkçe açıklama yaz; html alanını boş bırak.
+- Sağlık, hukuk veya yatırım tavsiyesi veren uygulamalar; kişisel veri toplayan formlar; bilinen markaların, uygulamaların ya da oyunların kopyaları (adı, görünümü, karakterleri); yasa dışı, cinsel, nefret içeren veya zarar verici içerik. Böyle bir istek gelirse reddet ve kullanıcıya gösterilecek kısa, kibar bir Türkçe açıklama yaz.
 
-Çıktı: name (kısa uygulama adı, en fazla 24 karakter), emoji (tek emoji), description (tek cümlelik açıklama), html (tam belge), refused, refusal_reason.`;
+`;
+
+// JSON şemalı çıktı (Claude): HTML'i JSON içinde döndürür.
+export const JSON_OUTPUT_RULES = `
+Çıktı: name (kısa uygulama adı, en fazla 24 karakter), emoji (tek emoji), description (tek cümlelik açıklama), html (tam belge), refused, refusal_reason. Reddedersen refused: true, refusal_reason dolu, html boş olsun.`;
+
+// Düz metin çıktı (Gemini): JSON kaçış karakterleri olmadan, daha hızlı ve hemen akmaya başlar.
+export const TEXT_OUTPUT_RULES = `
+Çıktı biçimi (kesin, başka hiçbir şey yazma, kod bloğu işareti kullanma):
+1. satır: META {"name":"kısa uygulama adı (en fazla 24 karakter)","emoji":"tek emoji","description":"tek cümlelik açıklama"}
+2. satırdan itibaren: <!doctype html> ile başlayan tam HTML belgesi.
+Reddedeceksen sadece tek satır yaz: REDDET: kullanıcıya gösterilecek açıklama`;
+
+export function parseTextOutput(text: string): GeneratedApp {
+  const t = text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (t.startsWith("REDDET:")) {
+    return { name: "", emoji: "", description: "", html: "", refused: true, refusal_reason: t.slice(7).trim().split("\n")[0] };
+  }
+  const nl = t.indexOf("\n");
+  const first = nl >= 0 ? t.slice(0, nl) : t;
+  let meta: { name?: string; emoji?: string; description?: string } = {};
+  if (first.startsWith("META")) {
+    try {
+      meta = JSON.parse(first.slice(4).trim());
+    } catch {}
+  }
+  const start = t.search(/<!doctype html>/i);
+  if (start < 0) throw new SyntaxError("HTML bulunamadı");
+  return {
+    name: meta.name ?? "Yeni uygulama",
+    emoji: meta.emoji ?? "✨",
+    description: meta.description ?? "",
+    html: t.slice(start),
+    refused: false,
+    refusal_reason: "",
+  };
+}
 
 export const OUTPUT_SCHEMA = {
   type: "object",
