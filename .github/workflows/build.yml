@@ -46,17 +46,26 @@ jobs:
         # Yetki yoksa sunucu veritabanısız çalışmaya devam eder (paylaşma/vitrin kapalı).
         continue-on-error: true
         run: |
-          set -o pipefail
-          id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[] | select(.name=="cep-fabrikasi") | .uuid' | head -1)
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          list=$(curl -s -H "$auth" "$api?name=cep-fabrikasi")
+          if [ "$(echo "$list" | jq -r '.success')" != "true" ]; then
+            echo "$list" | jq '.errors'
+            echo "::warning::Veritabanına erişilemedi. Cloudflare token'ına 'Account > D1 > Edit' yetkisi eklenmeli."
+            exit 1
+          fi
+          id=$(echo "$list" | jq -r '.result[] | select(.name=="cep-fabrikasi") | .uuid' | head -1)
           if [ -z "$id" ]; then
-            npx wrangler d1 create cep-fabrikasi 2>&1 | tee d1.log || {
-              echo "::warning::D1 veritabanı oluşturulamadı. Cloudflare token'ına 'D1 Edit' yetkisi eklenmeli."; exit 1; }
-            id=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="cep-fabrikasi") | .uuid' | head -1)
+            created=$(curl -s -X POST -H "$auth" -H "Content-Type: application/json" --data '{"name":"cep-fabrikasi"}' "$api")
+            echo "$created" | jq '{success, errors}'
+            id=$(echo "$created" | jq -r '.result.uuid // empty')
           fi
           [ -n "$id" ] || exit 1
-          printf '\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = "cep-fabrikasi"\ndatabase_id = "%s"\n' "$id" > d1.toml
-          npx wrangler d1 execute cep-fabrikasi --remote --file schema.sql --yes
-          cat d1.toml >> wrangler.toml
+          sql=$(jq -Rs '{sql: .}' schema.sql)
+          res=$(curl -s -X POST -H "$auth" -H "Content-Type: application/json" --data "$sql" "$api/$id/query")
+          echo "$res" | jq '{success, errors}'
+          [ "$(echo "$res" | jq -r '.success')" = "true" ] || exit 1
+          printf '\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = "cep-fabrikasi"\ndatabase_id = "%s"\n' "$id" >> wrangler.toml
           echo "D1 hazır: $id"
       - name: Yayınla
         id: deploy

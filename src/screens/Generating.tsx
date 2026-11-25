@@ -4,7 +4,7 @@ import { useTheme } from "../theme";
 
 const STEPS = ["İsteğini anlıyorum…", "Ekranları tasarlıyorum…", "Butonları yerleştiriyorum…", "Kodu yazıyorum…", "Son rötuşlar…"];
 
-export function Generating({ editing }: { editing?: boolean }) {
+export function Generating({ editing, loading }: { editing?: boolean; loading?: boolean }) {
   const t = useTheme();
   const [i, setI] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -23,8 +23,8 @@ export function Generating({ editing }: { editing?: boolean }) {
   return (
     <View style={[StyleSheet.absoluteFill, styles.wrap, { backgroundColor: t.bg }]}>
       <Animated.Text style={[styles.icon, { transform: [{ scale: pulse }] }]}>🏭</Animated.Text>
-      <Text style={[styles.title, { color: t.ink }]}>{editing ? "Değiştiriyorum" : "Fabrika çalışıyor"}</Text>
-      <Text style={[styles.step, { color: t.muted }]}>{editing ? "Söylediğini uyguluyorum…" : STEPS[i]}</Text>
+      <Text style={[styles.title, { color: t.ink }]}>{loading ? "Açılıyor" : editing ? "Değiştiriyorum" : "Fabrika çalışıyor"}</Text>
+      <Text style={[styles.step, { color: t.muted }]}>{loading ? "Uygulama getiriliyor…" : editing ? "Söylediğini uyguluyorum…" : STEPS[i]}</Text>
       <ActivityIndicator color={t.accent} style={{ marginTop: 24 }} />
     </View>
   );

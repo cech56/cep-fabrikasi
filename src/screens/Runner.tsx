@@ -1,8 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { ComponentType, RefAttributes, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
+import { canPinShortcut } from "../../modules/cep-shortcut";
+import { MicButton } from "../components/MicButton";
 import { BRIDGE_JS, wrapHtml } from "../runtime";
 import { getAppData, setAppValue } from "../storage";
 import { useTheme } from "../theme";
@@ -13,13 +15,22 @@ const SandboxWebView = WebView as unknown as ComponentType<Record<string, unknow
 
 type Props = {
   app: MiniApp;
+  preview?: boolean; // vitrinden açıldı, henüz kaydedilmedi
   onBack: () => void;
   onEdit: (instruction: string) => void;
   onUndo: () => void;
+  onShare: () => void;
+  onPin: () => void;
+  onReport?: () => void;
+  onSave?: () => void;
 };
 
-export function Runner({ app, onBack, onEdit, onUndo }: Props) {
+export const BEAUTIFY =
+  "Uygulamayı güzelleştir: daha modern ve şık bir tasarım yap (yumuşak gölgeler, uyumlu renkler, akıcı geçiş animasyonları, büyük ve rahat dokunulan butonlar), boş durumlar için yardımcı metinler ekle, varsa küçük hataları düzelt. Mevcut özellikleri ve kayıtlı veri anahtarlarını aynen koru.";
+
+export function Runner({ app, preview, onBack, onEdit, onUndo, onShare, onPin, onReport, onSave }: Props) {
   const t = useTheme();
+  const pinnable = !preview && canPinShortcut();
   const web = useRef<WebView>(null);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,9 +80,13 @@ export function Runner({ app, onBack, onEdit, onUndo }: Props) {
         <Text numberOfLines={1} style={[styles.title, { color: t.ink }]}>
           {app.emoji} {app.name}
         </Text>
-        <Pressable onPress={onUndo} disabled={app.history.length === 0} hitSlop={12} style={styles.topBtn}>
-          <Text style={{ color: app.history.length ? t.accent : t.muted, fontSize: 15 }}>↶ Geri al</Text>
-        </Pressable>
+        {preview ? (
+          <View style={styles.topBtn} />
+        ) : (
+          <Pressable onPress={onUndo} disabled={app.history.length === 0} hitSlop={12} style={styles.topBtn}>
+            <Text style={{ color: app.history.length ? t.accent : t.muted, fontSize: 15, textAlign: "right" }}>↶ Geri al</Text>
+          </Pressable>
+        )}
       </View>
 
       <SandboxWebView
@@ -103,32 +118,58 @@ export function Runner({ app, onBack, onEdit, onUndo }: Props) {
         </Pressable>
       )}
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={[styles.bar, { backgroundColor: t.card, borderColor: t.border }]}>
-          <TextInput
-            value={instruction}
-            onChangeText={setInstruction}
-            placeholder="Değiştir: rengi yeşil yap, kategori ekle…"
-            placeholderTextColor={t.muted}
-            style={[styles.barInput, { color: t.ink }]}
-            onSubmitEditing={send}
-            returnKeyType="send"
-          />
-          <Pressable onPress={send} style={[styles.send, { backgroundColor: t.accent }]}>
-            <Text style={{ color: t.accentInk, fontWeight: "800" }}>✨</Text>
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.actions}>
+        {!preview && <Action label="✨ Güzelleştir" onPress={() => onEdit(BEAUTIFY)} />}
+        <Action label="🔗 Paylaş" onPress={onShare} />
+        {pinnable && <Action label="📌 Ana ekrana ekle" onPress={onPin} />}
+        {onReport && <Action label="🚩 Şikayet et" onPress={onReport} />}
+      </ScrollView>
+
+      {preview ? (
+        <Pressable onPress={onSave} style={[styles.save, { backgroundColor: t.accent }]}>
+          <Text style={{ color: t.accentInk, fontSize: 17, fontWeight: "800" }}>📥 Uygulamalarıma ekle ve uyarla</Text>
+        </Pressable>
+      ) : (
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={[styles.bar, { backgroundColor: t.card, borderColor: t.border }]}>
+            <TextInput
+              value={instruction}
+              onChangeText={setInstruction}
+              placeholder="Değiştir: rengi yeşil yap, kategori ekle…"
+              placeholderTextColor={t.muted}
+              style={[styles.barInput, { color: t.ink }]}
+              onSubmitEditing={send}
+              returnKeyType="send"
+            />
+            <MicButton currentText={instruction} onText={setInstruction} size={40} />
+            <Pressable onPress={send} style={[styles.send, { backgroundColor: t.accent }]}>
+              <Text style={{ color: t.accentInk, fontWeight: "800" }}>✨</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
 
+function Action({ label, onPress }: { label: string; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: t.card, borderColor: t.border, opacity: pressed ? 0.7 : 1 }]}>
+      <Text style={{ color: t.ink, fontSize: 14, fontWeight: "600" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  actions: { gap: 8, paddingHorizontal: 12, paddingTop: 10 },
+  action: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
+  save: { margin: 12, borderRadius: 16, paddingVertical: 16, alignItems: "center" },
   top: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   topBtn: { minWidth: 70 },
   title: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "700" },
   error: { marginHorizontal: 12, marginBottom: 8, borderRadius: 12, padding: 10 },
-  bar: { flexDirection: "row", alignItems: "center", margin: 12, borderRadius: 999, borderWidth: 1, paddingLeft: 16, paddingRight: 6, paddingVertical: 6 },
+  bar: { flexDirection: "row", alignItems: "center", gap: 6, margin: 12, borderRadius: 999, borderWidth: 1, paddingLeft: 16, paddingRight: 6, paddingVertical: 6 },
   barInput: { flex: 1, fontSize: 16, paddingVertical: 8 },
   send: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });
