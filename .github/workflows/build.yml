@@ -61,7 +61,11 @@ jobs:
       - name: Gemini anahtarını sunucuya gizli olarak ekle
         run: printf '%s' "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
       - name: Sağlık kontrolü
-        run: curl -fsS "${{ steps.deploy.outputs.url }}/health"
+        # Yeni workers.dev adresinin sertifikası birkaç dakika sürebilir; APK derlemesini bekletmez.
+        continue-on-error: true
+        run: |
+          for i in $(seq 1 12); do curl -fsS "${{ steps.deploy.outputs.url }}/health" && exit 0; sleep 15; done
+          exit 1
 
   apk:
     name: Android APK
