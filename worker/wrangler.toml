@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # "gemini" (ücretsiz katman, varsayılan) veya "anthropic" (gelir gelince)
 AI_PROVIDER = "gemini"
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 # Hız için düşük düşünme seviyesi ("low" / "high"; boş = model varsayılanı)
 GEMINI_THINKING = "low"
 ANTHROPIC_MODEL = "claude-opus-5-5"
