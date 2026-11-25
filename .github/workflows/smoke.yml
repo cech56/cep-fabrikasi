@@ -21,6 +21,10 @@ jobs:
           curl -sS -m 300 -X POST "${{ inputs.url }}/generate" -H 'content-type: application/json' -d "$body" -o out.json -w 'HTTP %{http_code}\n'
           echo "Süre: $(( $(date +%s) - start )) sn"
           jq -r 'if .error then "HATA: " + .error elif .refused then "RED: " + .reason else "OK: " + .name + " " + .emoji + " (" + (.html|length|tostring) + " karakter)" end' out.json || head -c 1000 out.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uretilen-uygulama
+          path: out.json
       - name: Erişilebilen Gemini flash modelleri
         env:
           KEY: ${{ secrets.GEMINI_API_KEY }}
