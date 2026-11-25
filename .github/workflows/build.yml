@@ -42,6 +42,22 @@ jobs:
           name="cepfabrikasi-$(echo "$CLOUDFLARE_ACCOUNT_ID" | cut -c1-6)"
           echo "Alt alan adı kaydediliyor: $name"
           curl -s -X PUT -H "$auth" -H "Content-Type: application/json" --data "{\"subdomain\":\"$name\"}" "$api" | jq '{success, errors}'
+      - name: Veritabanını (D1) hazırla
+        # Yetki yoksa sunucu veritabanısız çalışmaya devam eder (paylaşma/vitrin kapalı).
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          id=$(npx wrangler d1 list --json 2>/dev/null | jq -r '.[] | select(.name=="cep-fabrikasi") | .uuid' | head -1)
+          if [ -z "$id" ]; then
+            npx wrangler d1 create cep-fabrikasi 2>&1 | tee d1.log || {
+              echo "::warning::D1 veritabanı oluşturulamadı. Cloudflare token'ına 'D1 Edit' yetkisi eklenmeli."; exit 1; }
+            id=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="cep-fabrikasi") | .uuid' | head -1)
+          fi
+          [ -n "$id" ] || exit 1
+          printf '\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = "cep-fabrikasi"\ndatabase_id = "%s"\n' "$id" > d1.toml
+          npx wrangler d1 execute cep-fabrikasi --remote --file schema.sql --yes
+          cat d1.toml >> wrangler.toml
+          echo "D1 hazır: $id"
       - name: Yayınla
         id: deploy
         run: |

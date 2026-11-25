@@ -9,7 +9,9 @@ export type Env = {
   DAILY_LIMIT_PER_DEVICE: string;
   GEMINI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
-  LIMITS?: KVNamespace;
+  DB?: D1Database;
+  APK_URL?: string;
+  REPORTS_TO_HIDE?: string;
 };
 
 export class ProviderError extends Error {

@@ -12,13 +12,12 @@ GEMINI_THINKING = "low"
 ANTHROPIC_MODEL = "claude-opus-5-5"
 # Cihaz başına günlük üretim limiti (ücretsiz katmanı korumak için)
 DAILY_LIMIT_PER_DEVICE = "20"
+REPORTS_TO_HIDE = "3"
+APK_URL = "https://github.com/cech56/cep-fabrikasi/releases"
 
 # Gizli anahtarlar koda yazılmaz, şu komutlarla eklenir:
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put ANTHROPIC_API_KEY   (sadece anthropic'e geçince)
 
-# Günlük limit sayacı için KV (isteğe bağlı; yoksa limit uygulanmaz):
-#   npx wrangler kv namespace create LIMITS  -> çıkan id'yi aşağıya yaz
-# [[kv_namespaces]]
-# binding = "LIMITS"
-# id = "..."
+# Veritabanı (D1): GitHub Actions yayında otomatik oluşturur ve buraya ekler.
+# Yerelde denemek için: npx wrangler d1 create cep-fabrikasi
