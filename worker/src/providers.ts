@@ -22,7 +22,8 @@ const { additionalProperties: _ignored, ...geminiSchema } = OUTPUT_SCHEMA;
 
 async function generateWithGemini(env: Env, userMessage: string): Promise<GeneratedApp> {
   if (!env.GEMINI_API_KEY) throw new ProviderError("GEMINI_API_KEY eksik", 500);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
+  // Akışlı uç nokta: uzun üretimlerde bağlantı boşta kalıp zaman aşımına düşmesin.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:streamGenerateContent?alt=sse`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
@@ -37,9 +38,35 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
     }),
   });
   if (res.status === 429) throw new ProviderError("Günlük ücretsiz kota doldu, biraz sonra tekrar dene.", 429);
-  if (!res.ok) throw new ProviderError(`Gemini hatası ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data: any = await res.json();
-  const text: string | undefined = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("");
+  if (!res.ok || !res.body) throw new ProviderError(`Gemini hatası ${res.status}: ${(await res.text()).slice(0, 300)}`);
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let text = "";
+  let finishReason = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      try {
+        const chunk: any = JSON.parse(line.slice(5));
+        const cand = chunk?.candidates?.[0];
+        for (const part of cand?.content?.parts ?? []) if (!part.thought && part.text) text += part.text;
+        if (cand?.finishReason) finishReason = cand.finishReason;
+      } catch {
+        // yarım satır olmaz (satır satır işliyoruz); bozuk parça atlanır
+      }
+    }
+    if (done) break;
+  }
+  if (finishReason === "MAX_TOKENS") throw new ProviderError("Uygulama çok uzun oldu, daha sade anlatmayı dene.", 422);
+  if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
+    return { name: "", emoji: "", description: "", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
+  }
   if (!text) throw new ProviderError("Gemini boş yanıt döndü");
   return JSON.parse(text) as GeneratedApp;
 }
