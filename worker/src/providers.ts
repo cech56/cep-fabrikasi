@@ -4,6 +4,7 @@ import { GeneratedApp, OUTPUT_SCHEMA, SYSTEM_PROMPT } from "./prompt";
 export type Env = {
   AI_PROVIDER: string;
   GEMINI_MODEL: string;
+  GEMINI_THINKING?: string;
   ANTHROPIC_MODEL: string;
   DAILY_LIMIT_PER_DEVICE: string;
   GEMINI_API_KEY?: string;
@@ -34,6 +35,8 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
         responseMimeType: "application/json",
         responseSchema: geminiSchema,
         maxOutputTokens: 32000,
+        // Düşünme seviyesi düşük = çok daha hızlı üretim. Boş bırakılırsa modelin varsayılanı kullanılır.
+        ...(env.GEMINI_THINKING ? { thinkingConfig: { thinkingLevel: env.GEMINI_THINKING } } : {}),
       },
     }),
   });
