@@ -33,6 +33,15 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
+      - name: workers.dev alt alan adını hazırla
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          current=$(curl -s -H "$auth" "$api" | jq -r '.result.subdomain // empty')
+          if [ -n "$current" ]; then echo "Mevcut alt alan adı: $current"; exit 0; fi
+          name="cepfabrikasi-$(echo "$CLOUDFLARE_ACCOUNT_ID" | cut -c1-6)"
+          echo "Alt alan adı kaydediliyor: $name"
+          curl -s -X PUT -H "$auth" -H "Content-Type: application/json" --data "{\"subdomain\":\"$name\"}" "$api" | jq '{success, errors}'
       - name: Yayınla
         id: deploy
         run: |
