@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # "gemini" (ücretsiz katman, varsayılan) veya "anthropic" (gelir gelince)
 AI_PROVIDER = "gemini"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 ANTHROPIC_MODEL = "claude-opus-5-5"
 # Cihaz başına günlük üretim limiti (ücretsiz katmanı korumak için)
 DAILY_LIMIT_PER_DEVICE = "20"
