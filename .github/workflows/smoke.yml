@@ -1,0 +1,23 @@
+name: Sunucu üretim testi
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Test isteği
+        default: Basit bir sayaç uygulaması, artı ve eksi butonu olsun
+      url:
+        description: Sunucu adresi
+        default: https://cep-fabrikasi.cepfabrikasi-94cac6.workers.dev
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Üret ve sonucu göster
+        run: |
+          start=$(date +%s)
+          body=$(jq -n --arg p "${{ inputs.prompt }}" '{prompt: $p, deviceId: "ci-smoke"}')
+          curl -sS -m 300 -X POST "${{ inputs.url }}/generate" -H 'content-type: application/json' -d "$body" -o out.json -w 'HTTP %{http_code}\n'
+          echo "Süre: $(( $(date +%s) - start )) sn"
+          jq -r 'if .error then "HATA: " + .error elif .refused then "RED: " + .reason else "OK: " + .name + " " + .emoji + " (" + (.html|length|tostring) + " karakter)" end' out.json || head -c 1000 out.json
