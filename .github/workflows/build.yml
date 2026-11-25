@@ -36,7 +36,13 @@ jobs:
       - name: Yayınla
         id: deploy
         run: |
-          npx wrangler deploy 2>&1 | tee deploy.log
+          set -o pipefail
+          if ! npx wrangler deploy 2>&1 | tee deploy.log; then
+            if grep -q "Invalid access token\|Authentication error" deploy.log; then
+              echo "::error::Cloudflare token geçersiz. My Profile > API Tokens > Create Token > 'Edit Cloudflare Workers' şablonuyla yeni token oluşturup CLOUDFLARE_API_TOKEN secret'ını güncelle."
+            fi
+            exit 1
+          fi
           url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
           if [ -z "$url" ]; then
             echo "::error::workers.dev adresi bulunamadı. Cloudflare panelinde Workers & Pages sayfasını bir kez açıp workers.dev alt alan adını seçmen gerekebilir."
