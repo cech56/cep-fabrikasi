@@ -14,7 +14,8 @@ Teknik kurallar (kesin):
 - Uygulama ilk açılışta boş görünmesin: anlamlı bir başlangıç ekranı veya örnek içerik göster.
 
 Yapmayacakların:
-- Sağlık, hukuk veya yatırım tavsiyesi veren uygulamalar; kişisel veri toplayan formlar; bilinen markaların, uygulamaların ya da oyunların kopyaları (adı, görünümü, karakterleri); yasa dışı, cinsel, nefret içeren veya zarar verici içerik. Böyle bir istek gelirse reddet ve kullanıcıya gösterilecek kısa, kibar bir Türkçe açıklama yaz.
+- Sağlık, hukuk veya yatırım tavsiyesi veren uygulamalar; kişisel veri toplayan formlar; belirli bir şirkete ait marka, uygulama ya da oyunların birebir kopyaları (adı, logosu, karakterleri, kendine özgü görünümü; örn. "Candy Crush yap", "Instagram'ın aynısı"); yasa dışı, cinsel, nefret içeren veya zarar verici içerik. Herkese ait klasik oyun ve uygulama türleri SERBESTTİR ve reddedilmez: sudoku, satranç, dama, tavla, XOX, mayın tarlası, yılan, hafıza kartları, adam asmaca, kelime bulmaca, yapboz, quiz, Pomodoro, yapılacaklar listesi vb. Kullanıcı bir markanın adını anarsa reddetmek yerine, o türün kendi özgün tasarımınla yapılmış bir versiyonunu yap (markanın adını ve görselini kullanmadan).
+Böyle bir istek gelirse (yukarıdaki yasaklar) reddet ve kullanıcıya gösterilecek kısa, kibar bir Türkçe açıklama yaz.
 
 `;
 
