@@ -1,0 +1,33 @@
+name: Gemini hız ölçümü
+
+on: workflow_dispatch
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg:
+          - '{"model":"gemini-3.8-flash","thinking":{"thinkingLevel":"low"}}'
+          - '{"model":"gemini-3.8-flash","thinking":{"thinkingLevel":"minimal"}}'
+          - '{"model":"gemini-3.8-flash","thinking":{"thinkingBudget":0}}'
+          - '{"model":"gemini-3.5-flash-lite","thinking":{"thinkingLevel":"low"}}'
+          - '{"model":"gemini-3.5-flash","thinking":{"thinkingLevel":"low"}}'
+    steps:
+      - env:
+          KEY: ${{ secrets.GEMINI_API_KEY }}
+          CFG: ${{ matrix.cfg }}
+        run: |
+          model=$(echo "$CFG" | jq -r .model)
+          body=$(jq -n --argjson t "$(echo "$CFG" | jq .thinking)" '{systemInstruction:{parts:[{text:"Tek dosyalık, mobil uyumlu bir HTML mini uygulama yaz. İlk satır META {\"name\":\"..\"}, sonra <!doctype html> ile başlayan belge. Başka bir şey yazma."}]},contents:[{role:"user",parts:[{text:"Market alışveriş listesi. Ürün ekleyeyim, aldıklarımın üstü çizilsin, kategorilere göre gruplansın, alınanları tek tuşla temizleyeyim."}]}],generationConfig:{maxOutputTokens:32000,thinkingConfig:$t}}')
+          start=$(date +%s.%N)
+          curl -sS -N -m 300 -H "x-goog-api-key: $KEY" -H 'content-type: application/json' -d "$body" \
+            "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse" \
+            | while IFS= read -r line; do
+                case "$line" in data:*) if [ ! -f first ]; then touch first; echo "ILK_PARCA $(echo "$(date +%s.%N) - $start" | bc) sn"; fi; echo "${line#data: }" >> chunks.jsonl;; esac
+              done
+          echo "TOPLAM $(echo "$(date +%s.%N) - $start" | bc) sn"
+          jq -rs '[.[] | .candidates[0].content.parts[]? | select(.thought|not) | .text // ""] | join("") | length | "KARAKTER \(.)"' chunks.jsonl || true
+          jq -rs '.[0].error.message // empty' chunks.jsonl || true
+          echo "CFG $CFG"
