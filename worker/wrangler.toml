@@ -1,0 +1,22 @@
+name = "cep-fabrikasi"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# "gemini" (ücretsiz katman, varsayılan) veya "anthropic" (gelir gelince)
+AI_PROVIDER = "gemini"
+GEMINI_MODEL = "gemini-2.5-flash"
+ANTHROPIC_MODEL = "claude-opus-5-5"
+# Cihaz başına günlük üretim limiti (ücretsiz katmanı korumak için)
+DAILY_LIMIT_PER_DEVICE = "20"
+
+# Gizli anahtarlar koda yazılmaz, şu komutlarla eklenir:
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put ANTHROPIC_API_KEY   (sadece anthropic'e geçince)
+
+# Günlük limit sayacı için KV (isteğe bağlı; yoksa limit uygulanmaz):
+#   npx wrangler kv namespace create LIMITS  -> çıkan id'yi aşağıya yaz
+# [[kv_namespaces]]
+# binding = "LIMITS"
+# id = "..."

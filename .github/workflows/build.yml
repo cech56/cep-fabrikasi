@@ -1,0 +1,86 @@
+name: Sunucuyu kur ve APK derle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  worker:
+    name: Ara sunucu (Cloudflare)
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Yayınla
+        id: deploy
+        run: |
+          npx wrangler deploy 2>&1 | tee deploy.log
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::workers.dev adresi bulunamadı. Cloudflare panelinde Workers & Pages sayfasını bir kez açıp workers.dev alt alan adını seçmen gerekebilir."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Gemini anahtarını sunucuya gizli olarak ekle
+        run: printf '%s' "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
+      - name: Sağlık kontrolü
+        run: curl -fsS "${{ steps.deploy.outputs.url }}/health"
+
+  apk:
+    name: Android APK
+    needs: worker
+    runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_API_URL: ${{ needs.worker.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx expo prebuild --platform android --no-install
+      - name: APK derle
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs=-Xmx4g
+      - name: APK'yı adlandır
+        run: cp android/app/build/outputs/apk/release/app-release.apk cep-fabrikasi-${{ github.run_number }}.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cep-fabrikasi-apk
+          path: cep-fabrikasi-*.apk
+      - name: İndirme linki için sürüm oluştur
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deneme-${{ github.run_number }}
+          name: Deneme sürümü ${{ github.run_number }}
+          prerelease: true
+          body: Telefonundan bu sayfayı açıp APK dosyasına dokun, indir ve kur.
+          files: cep-fabrikasi-*.apk
