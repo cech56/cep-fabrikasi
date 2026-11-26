@@ -46,6 +46,25 @@ export async function deleteApp(id: string) {
   await AsyncStorage.removeItem(dataKey(id));
 }
 
+export async function getApp(id: string): Promise<MiniApp | undefined> {
+  return (await loadApps()).find((a) => a.id === id);
+}
+
+// Ortak odadan gelen verileri toplu yazar
+export async function mergeAppData(appId: string, values: Record<string, unknown>) {
+  const data = await getAppData(appId);
+  Object.assign(data, values);
+  await AsyncStorage.setItem(dataKey(appId), JSON.stringify(data));
+}
+
+const NICK_KEY = "cep/nickname";
+export async function getNickname() {
+  return (await AsyncStorage.getItem(NICK_KEY)) ?? "";
+}
+export async function setNickname(name: string) {
+  await AsyncStorage.setItem(NICK_KEY, name.trim().slice(0, 20));
+}
+
 export function withNewVersion(app: MiniApp, html: string, prompt: string): MiniApp {
   const history = [{ prompt, html: app.html, at: app.updatedAt }, ...app.history].slice(0, MAX_HISTORY);
   return { ...app, html, history, updatedAt: Date.now() };

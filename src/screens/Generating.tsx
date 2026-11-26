@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from "react-native";
+import { t } from "../i18n";
 import { useTheme } from "../theme";
 
-const STEPS = ["İsteğini anlıyorum…", "Ekranları tasarlıyorum…", "Butonları yerleştiriyorum…", "Kodu yazıyorum…", "Son rötuşlar…"];
+const STEPS = t("steps").split("|");
 
-export function Generating({ editing, loading }: { editing?: boolean; loading?: boolean }) {
-  const t = useTheme();
+export function Generating({ mode }: { mode: "create" | "edit" | "load" | "fix" }) {
+  const th = useTheme();
   const [i, setI] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -21,11 +22,11 @@ export function Generating({ editing, loading }: { editing?: boolean; loading?: 
   }, [pulse]);
 
   return (
-    <View style={[StyleSheet.absoluteFill, styles.wrap, { backgroundColor: t.bg }]}>
+    <View style={[StyleSheet.absoluteFill, styles.wrap, { backgroundColor: th.bg }]}>
       <Animated.Text style={[styles.icon, { transform: [{ scale: pulse }] }]}>🏭</Animated.Text>
-      <Text style={[styles.title, { color: t.ink }]}>{loading ? "Açılıyor" : editing ? "Değiştiriyorum" : "Fabrika çalışıyor"}</Text>
-      <Text style={[styles.step, { color: t.muted }]}>{loading ? "Uygulama getiriliyor…" : editing ? "Söylediğini uyguluyorum…" : STEPS[i]}</Text>
-      <ActivityIndicator color={t.accent} style={{ marginTop: 24 }} />
+      <Text style={[styles.title, { color: th.ink }]}>{mode === "load" ? t("genLoad") : mode === "fix" ? t("genFix") : mode === "edit" ? t("genEdit") : t("genTitle")}</Text>
+      <Text style={[styles.step, { color: th.muted }]}>{mode === "load" ? t("genLoadSub") : mode === "fix" ? t("genFixSub") : mode === "edit" ? t("genEditSub") : STEPS[i]}</Text>
+      <ActivityIndicator color={th.accent} style={{ marginTop: 24 }} />
     </View>
   );
 }

@@ -11,6 +11,9 @@ export type MiniApp = {
   sharedId?: string; // paylaşıldıysa vitrindeki kimliği
   sharedHtml?: string; // paylaşılan sürüm (değişince yeniden paylaşmak için)
   parentId?: string; // başkasından alındıysa kaynak uygulama
+  category?: string;
+  roomId?: string; // "birlikte kullan" odası
+  roomSince?: number; // odadan alınan son değişikliğin zamanı (sunucu saati)
 };
 
 export type SharedApp = {
@@ -24,6 +27,11 @@ export type SharedApp = {
   created_at: number;
   views: number;
   remixes: number;
+  likes: number;
+  category: string;
+  author: string;
 };
 
-export type VitrinItem = Omit<SharedApp, "html" | "prompt" | "parent_id">;
+export type VitrinItem = Omit<SharedApp, "html" | "prompt" | "parent_id"> & { liked?: number };
+
+export type Room = { id: string; name: string; emoji: string; description: string; html: string; data: Record<string, string>; now: number };

@@ -1,40 +1,119 @@
 import * as Haptics from "expo-haptics";
-import { ComponentType, RefAttributes, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ComponentType, RefAttributes, useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { canPinShortcut } from "../../modules/cep-shortcut";
+import { decodeRoomData, fetchRoom, fetchRoomChanges, pushRoomValue } from "../api";
 import { MicButton } from "../components/MicButton";
+import { t } from "../i18n";
+import { cancelAllForApp, cancelForApp, scheduleForApp } from "../notify";
 import { BRIDGE_JS, wrapHtml } from "../runtime";
-import { getAppData, setAppValue } from "../storage";
+import { getAppData, mergeAppData, setAppValue } from "../storage";
 import { useTheme } from "../theme";
 import { MiniApp } from "../types";
 
 // react-native-webview 14 tipleri TypeScript 6 ile "never"a çöküyor; çalışma zamanı etkilenmez.
 const SandboxWebView = WebView as unknown as ComponentType<Record<string, unknown> & RefAttributes<WebView>>;
 
+const POLL_MS = 3000;
+const AUTO_FIX_WINDOW_MS = 8000;
+
 type Props = {
   app: MiniApp;
   preview?: boolean; // vitrinden açıldı, henüz kaydedilmedi
+  fresh?: number; // elle yapılan son üretimin zamanı: açılışta hata çıkarsa bir kez kendiliğinden düzelt
+  liked?: boolean;
   onBack: () => void;
-  onEdit: (instruction: string) => void;
+  onEdit: (instruction: string, auto?: boolean) => void;
   onUndo: () => void;
   onShare: () => void;
   onPin: () => void;
+  onTogether: () => void;
+  onRemoteHtml: (html: string) => void;
   onReport?: () => void;
+  onLike?: () => void;
   onSave?: () => void;
 };
 
-export const BEAUTIFY =
-  "Uygulamayı güzelleştir: daha modern ve şık bir tasarım yap (yumuşak gölgeler, uyumlu renkler, akıcı geçiş animasyonları, büyük ve rahat dokunulan butonlar), boş durumlar için yardımcı metinler ekle, varsa küçük hataları düzelt. Mevcut özellikleri ve kayıtlı veri anahtarlarını aynen koru.";
-
-export function Runner({ app, preview, onBack, onEdit, onUndo, onShare, onPin, onReport, onSave }: Props) {
-  const t = useTheme();
+export function Runner(p: Props) {
+  const { app, preview } = p;
+  const th = useTheme();
   const pinnable = !preview && canPinShortcut();
   const web = useRef<WebView>(null);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [ready, setReady] = useState(!app.roomId || !!preview);
+  const listening = useRef(false);
+  const since = useRef(0);
+  const loadedAt = useRef(Date.now());
+  const autoFixed = useRef(false);
 
+  // Her yeni elle üretimde bir otomatik düzeltme hakkı
+  useEffect(() => {
+    autoFixed.current = false;
+  }, [p.fresh]);
+
+  // Yeni sürüm yüklenince dinleyici durumu ve otomatik düzeltme penceresi sıfırlanır
+  useEffect(() => {
+    listening.current = false;
+    loadedAt.current = Date.now();
+    setError(null);
+  }, [app.updatedAt, reloadKey]);
+
+  // ---- Birlikte kullan: açılışta tam eşitleme, sonra her 3 saniyede başkalarının değişikliklerini çek ----
+  const applyRemote = useCallback(
+    async (data: Record<string, string>) => {
+      const keys = Object.keys(data);
+      if (!keys.length) return;
+      await mergeAppData(app.id, decodeRoomData(data));
+      if (listening.current) web.current?.injectJavaScript(`window.__cepChanged(${JSON.stringify(keys)}); true;`);
+      else setReloadKey((k) => k + 1);
+    },
+    [app.id],
+  );
+
+  useEffect(() => {
+    if (!app.roomId || preview) return;
+    let alive = true;
+    const roomId = app.roomId;
+    const fallback = setTimeout(() => alive && setReady(true), 4000); // internet yoksa yerel veriyle aç
+    fetchRoom(roomId)
+      .then(async (room) => {
+        if (!alive) return;
+        await mergeAppData(app.id, decodeRoomData(room.data));
+        since.current = room.now;
+        setReady(true);
+      })
+      .catch(() => alive && setReady(true));
+
+    let busy = false;
+    const tick = async () => {
+      if (busy || !since.current || AppState.currentState !== "active") return;
+      busy = true;
+      try {
+        const ch = await fetchRoomChanges(roomId, since.current);
+        if (!alive) return;
+        since.current = ch.now;
+        if (ch.html) p.onRemoteHtml(ch.html);
+        await applyRemote(ch.data);
+      } catch {
+        // bağlantı yoksa sonraki turda yeniden dener
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = setInterval(tick, POLL_MS);
+    return () => {
+      alive = false;
+      clearTimeout(fallback);
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app.roomId, app.id, preview, applyRemote]);
+
+  // ---- Köprü ----
   const reply = (id: number, ok: boolean, value: unknown) => {
     web.current?.injectJavaScript(`window.__cepResolve(${id}, ${ok}, ${JSON.stringify(value ?? null)}); true;`);
   };
@@ -47,16 +126,43 @@ export function Runner({ app, preview, onBack, onEdit, onUndo, onShare, onPin, o
       return;
     }
     try {
-      if (msg.type === "get" && msg.id) {
-        const data = await getAppData(app.id);
-        reply(msg.id, true, data[String(msg.payload?.key)] ?? null);
-      } else if (msg.type === "set" && msg.id) {
-        await setAppValue(app.id, String(msg.payload?.key), msg.payload?.value ?? null);
-        reply(msg.id, true, true);
-      } else if (msg.type === "haptic") {
-        Haptics.selectionAsync();
-      } else if (msg.type === "error") {
-        setError(String(msg.payload).slice(0, 200));
+      switch (msg.type) {
+        case "get": {
+          const data = await getAppData(app.id);
+          return reply(msg.id!, true, data[String(msg.payload?.key)] ?? null);
+        }
+        case "set": {
+          const key = String(msg.payload?.key);
+          const value = msg.payload?.value ?? null;
+          await setAppValue(app.id, key, value);
+          reply(msg.id!, true, true);
+          if (app.roomId && !preview) pushRoomValue(app.roomId, key, value).catch(() => {});
+          return;
+        }
+        case "listen":
+          listening.current = true;
+          return;
+        case "haptic":
+          Haptics.selectionAsync();
+          return;
+        case "notify":
+          if (preview) throw new Error(t("notifPreview"));
+          return reply(msg.id!, true, await scheduleForApp(app.id, app.name, msg.payload ?? {}, t("notifDenied")));
+        case "cancelNotify":
+          return reply(msg.id!, true, await cancelForApp(app.id, String(msg.payload?.id)));
+        case "cancelAllNotify":
+          await cancelAllForApp(app.id);
+          return reply(msg.id!, true, true);
+        case "error": {
+          const err = String(msg.payload).slice(0, 200);
+          setError(err);
+          // Kendini kontrol eden fabrika: yeni üretilen uygulama açılırken hata verirse sormadan bir kez düzelt
+          if (p.fresh && !preview && !autoFixed.current && Date.now() - loadedAt.current < AUTO_FIX_WINDOW_MS) {
+            autoFixed.current = true;
+            p.onEdit(t("fixThis", { error: err }), true);
+          }
+          return;
+        }
       }
     } catch (err: any) {
       if (msg.id) reply(msg.id, false, err?.message ?? "Hata");
@@ -68,82 +174,93 @@ export function Runner({ app, preview, onBack, onEdit, onUndo, onShare, onPin, o
     if (text.length < 3) return;
     setInstruction("");
     setError(null);
-    onEdit(text);
+    p.onEdit(text);
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={["top", "bottom"]}>
-      <View style={[styles.top, { borderColor: t.border }]}>
-        <Pressable onPress={onBack} hitSlop={12} style={styles.topBtn}>
-          <Text style={{ color: t.accent, fontSize: 17, fontWeight: "600" }}>‹ Geri</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: th.bg }} edges={["top", "bottom"]}>
+      <View style={[styles.top, { borderColor: th.border }]}>
+        <Pressable onPress={p.onBack} hitSlop={12} style={styles.topBtn}>
+          <Text style={{ color: th.accent, fontSize: 17, fontWeight: "600" }}>{t("back")}</Text>
         </Pressable>
-        <Text numberOfLines={1} style={[styles.title, { color: t.ink }]}>
-          {app.emoji} {app.name}
-        </Text>
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text numberOfLines={1} style={[styles.title, { color: th.ink }]}>
+            {app.emoji} {app.name}
+          </Text>
+          {app.roomId && !preview && <Text style={{ color: th.accent, fontSize: 11, fontWeight: "700" }}>● {t("liveOn")}</Text>}
+        </View>
         {preview ? (
           <View style={styles.topBtn} />
         ) : (
-          <Pressable onPress={onUndo} disabled={app.history.length === 0} hitSlop={12} style={styles.topBtn}>
-            <Text style={{ color: app.history.length ? t.accent : t.muted, fontSize: 15, textAlign: "right" }}>↶ Geri al</Text>
+          <Pressable onPress={p.onUndo} disabled={app.history.length === 0} hitSlop={12} style={styles.topBtn}>
+            <Text style={{ color: app.history.length ? th.accent : th.muted, fontSize: 15, textAlign: "right" }}>{t("undo")}</Text>
           </Pressable>
         )}
       </View>
 
-      <SandboxWebView
-        ref={web}
-        key={app.updatedAt} // yeni sürümde yeniden yükle
-        source={{ html: wrapHtml(app.html), baseUrl: "about:blank" }}
-        originWhitelist={["about:*"]}
-        injectedJavaScriptBeforeContentLoaded={BRIDGE_JS}
-        onMessage={onMessage}
-        onShouldStartLoadWithRequest={(req: { url: string }) => req.url.startsWith("about:") || req.url.startsWith("data:")}
-        javaScriptCanOpenWindowsAutomatically={false}
-        setSupportMultipleWindows={false}
-        allowFileAccess={false}
-        allowFileAccessFromFileURLs={false}
-        allowUniversalAccessFromFileURLs={false}
-        geolocationEnabled={false}
-        mediaCapturePermissionGrantType="deny"
-        mixedContentMode="never"
-        cacheEnabled={false}
-        incognito
-        style={{ flex: 1, backgroundColor: t.bg }}
-      />
+      {ready ? (
+        <SandboxWebView
+          ref={web}
+          key={`${app.updatedAt}-${reloadKey}`} // yeni sürümde ya da ortak veri değişince yeniden yükle
+          source={{ html: wrapHtml(app.html), baseUrl: "about:blank" }}
+          originWhitelist={["about:*"]}
+          injectedJavaScriptBeforeContentLoaded={BRIDGE_JS}
+          onMessage={onMessage}
+          onShouldStartLoadWithRequest={(req: { url: string }) => req.url.startsWith("about:") || req.url.startsWith("data:")}
+          javaScriptCanOpenWindowsAutomatically={false}
+          setSupportMultipleWindows={false}
+          allowFileAccess={false}
+          allowFileAccessFromFileURLs={false}
+          allowUniversalAccessFromFileURLs={false}
+          geolocationEnabled={false}
+          mediaCapturePermissionGrantType="deny"
+          mixedContentMode="never"
+          cacheEnabled={false}
+          incognito
+          style={{ flex: 1, backgroundColor: th.bg }}
+        />
+      ) : (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={th.accent} />
+        </View>
+      )}
 
-      {error && (
-        <Pressable onPress={() => setInstruction(`Şu hatayı düzelt: ${error}`)} style={[styles.error, { backgroundColor: t.danger }]}>
+      {error && !preview && (
+        <Pressable onPress={() => setInstruction(t("fixThis", { error }))} style={[styles.error, { backgroundColor: th.danger }]}>
           <Text style={{ color: "#fff", fontSize: 13 }} numberOfLines={2}>
-            Uygulamada bir hata oldu. Düzeltmem için dokun.
+            {t("errorBanner")}
           </Text>
         </Pressable>
       )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.actions}>
-        {!preview && <Action label="✨ Güzelleştir" onPress={() => onEdit(BEAUTIFY)} />}
-        <Action label="🔗 Paylaş" onPress={onShare} />
-        {pinnable && <Action label="📌 Ana ekrana ekle" onPress={onPin} />}
-        {onReport && <Action label="🚩 Şikayet et" onPress={onReport} />}
+        {preview && p.onLike && <Action label={p.liked ? t("liked") : t("like")} onPress={p.onLike} />}
+        {!preview && <Action label={t("beautify")} onPress={() => p.onEdit(t("beautifyPrompt"))} />}
+        {!preview && <Action label={app.roomId ? t("invite") : t("together_")} onPress={p.onTogether} />}
+        <Action label={t("share")} onPress={p.onShare} />
+        {pinnable && <Action label={t("pin")} onPress={p.onPin} />}
+        {p.onReport && <Action label={t("report")} onPress={p.onReport} />}
       </ScrollView>
 
       {preview ? (
-        <Pressable onPress={onSave} style={[styles.save, { backgroundColor: t.accent }]}>
-          <Text style={{ color: t.accentInk, fontSize: 17, fontWeight: "800" }}>📥 Uygulamalarıma ekle ve uyarla</Text>
+        <Pressable onPress={p.onSave} style={[styles.save, { backgroundColor: th.accent }]}>
+          <Text style={{ color: th.accentInk, fontSize: 17, fontWeight: "800" }}>{t("saveToMine")}</Text>
         </Pressable>
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={[styles.bar, { backgroundColor: t.card, borderColor: t.border }]}>
+          <View style={[styles.bar, { backgroundColor: th.card, borderColor: th.border }]}>
             <TextInput
               value={instruction}
               onChangeText={setInstruction}
-              placeholder="Değiştir: rengi yeşil yap, kategori ekle…"
-              placeholderTextColor={t.muted}
-              style={[styles.barInput, { color: t.ink }]}
+              placeholder={t("editPlaceholder")}
+              placeholderTextColor={th.muted}
+              style={[styles.barInput, { color: th.ink }]}
               onSubmitEditing={send}
               returnKeyType="send"
             />
             <MicButton currentText={instruction} onText={setInstruction} size={40} />
-            <Pressable onPress={send} style={[styles.send, { backgroundColor: t.accent }]}>
-              <Text style={{ color: t.accentInk, fontWeight: "800" }}>✨</Text>
+            <Pressable onPress={send} style={[styles.send, { backgroundColor: th.accent }]}>
+              <Text style={{ color: th.accentInk, fontWeight: "800" }}>✨</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -153,10 +270,10 @@ export function Runner({ app, preview, onBack, onEdit, onUndo, onShare, onPin, o
 }
 
 function Action({ label, onPress }: { label: string; onPress: () => void }) {
-  const t = useTheme();
+  const th = useTheme();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: t.card, borderColor: t.border, opacity: pressed ? 0.7 : 1 }]}>
-      <Text style={{ color: t.ink, fontSize: 14, fontWeight: "600" }}>{label}</Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: th.card, borderColor: th.border, opacity: pressed ? 0.7 : 1 }]}>
+      <Text style={{ color: th.ink, fontSize: 14, fontWeight: "600" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -167,7 +284,7 @@ const styles = StyleSheet.create({
   save: { margin: 12, borderRadius: 16, paddingVertical: 16, alignItems: "center" },
   top: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   topBtn: { minWidth: 70 },
-  title: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "700" },
+  title: { textAlign: "center", fontSize: 17, fontWeight: "700" },
   error: { marginHorizontal: 12, marginBottom: 8, borderRadius: 12, padding: 10 },
   bar: { flexDirection: "row", alignItems: "center", gap: 6, margin: 12, borderRadius: 999, borderWidth: 1, paddingLeft: 16, paddingRight: 6, paddingVertical: 6 },
   barInput: { flex: 1, fontSize: 16, paddingVertical: 8 },

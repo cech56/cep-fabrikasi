@@ -40,18 +40,34 @@ export const BRIDGE_JS = `
     delete pending[id];
     ok ? p.resolve(value) : p.reject(new Error(value));
   };
+  var listeners = [];
+  window.__cepChanged = function (keys) {
+    for (var i = 0; i < listeners.length; i++) { try { listeners[i](keys); } catch (e) { window.onerror && window.onerror(String(e)); } }
+  };
   window.cep = {
     get: function (key) { return call("get", { key: String(key) }); },
     set: function (key, value) { return call("set", { key: String(key), value: value }); },
-    haptic: function () { window.ReactNativeWebView.postMessage(JSON.stringify({ type: "haptic" })); }
+    haptic: function () { window.ReactNativeWebView.postMessage(JSON.stringify({ type: "haptic" })); },
+    onChange: function (fn) {
+      if (typeof fn !== "function") return;
+      listeners.push(fn);
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "listen" }));
+    },
+    notify: function (opts) { return call("notify", opts || {}); },
+    cancelNotify: function (id) { return call("cancelNotify", { id: String(id) }); },
+    cancelAllNotify: function () { return call("cancelAllNotify", {}); }
   };
   window.alert = function (m) { console.log(m); };
   window.confirm = function () { return true; };
   window.prompt = function () { return null; };
   window.open = function () { return null; };
-  window.onerror = function (msg) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "error", payload: String(msg) }));
+  window.onerror = function (msg, src, line) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "error", payload: String(msg) + (line ? " (satır " + line + ")" : "") }));
   };
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "error", payload: "Promise: " + String((r && r.message) || r) }));
+  });
 })();
 true;
 `;

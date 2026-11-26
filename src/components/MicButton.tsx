@@ -1,6 +1,7 @@
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { LANG, t } from "../i18n";
 import { useTheme } from "../theme";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
 
 // Sesle yazdırma: Türkçe konuş, metin kutuya yazılsın. Ses kaydedilmez, sadece telefonun tanıma servisi kullanılır.
 export function MicButton({ onText, currentText, size = 44 }: Props) {
-  const t = useTheme();
+  const th = useTheme();
   const [listening, setListening] = useState(false);
   const base = useRef("");
 
@@ -25,8 +26,8 @@ export function MicButton({ onText, currentText, size = 44 }: Props) {
   useSpeechRecognitionEvent("error", (e) => {
     setListening(false);
     if (e.error === "no-speech" || e.error === "aborted") return;
-    if (e.error === "not-allowed") Alert.alert("Mikrofon izni", "Sesle yazdırmak için mikrofon iznini açman gerekiyor.");
-    else Alert.alert("Ses anlaşılamadı", "Bir daha dener misin?");
+    if (e.error === "not-allowed") Alert.alert(t("micPerm"), t("micPermBody"));
+    else Alert.alert(t("micFail"), t("micFailBody"));
   });
 
   const toggle = async () => {
@@ -36,18 +37,18 @@ export function MicButton({ onText, currentText, size = 44 }: Props) {
     }
     try {
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
-        Alert.alert("Ses tanıma yok", "Telefonunda ses tanıma servisi bulunamadı. Google uygulamasını güncellemeyi deneyebilirsin.");
+        Alert.alert(t("micNone"), t("micNoneBody"));
         return;
       }
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert("Mikrofon izni", "Sesle yazdırmak için mikrofon iznini açman gerekiyor.");
+        Alert.alert(t("micPerm"), t("micPermBody"));
         return;
       }
       base.current = currentText.trim();
-      ExpoSpeechRecognitionModule.start({ lang: "tr-TR", interimResults: true, continuous: false, addsPunctuation: true });
+      ExpoSpeechRecognitionModule.start({ lang: LANG === "tr" ? "tr-TR" : "en-US", interimResults: true, continuous: false, addsPunctuation: true });
     } catch {
-      Alert.alert("Ses tanıma başlatılamadı", "Bir daha dener misin?");
+      Alert.alert(t("micFail"), t("micFailBody"));
     }
   };
 
@@ -56,7 +57,7 @@ export function MicButton({ onText, currentText, size = 44 }: Props) {
       onPress={toggle}
       hitSlop={6}
       accessibilityLabel={listening ? "Dinlemeyi durdur" : "Sesle yazdır"}
-      style={[styles.btn, { width: size, height: size, borderRadius: size / 2, backgroundColor: listening ? t.danger : t.card, borderColor: listening ? t.danger : t.border }]}
+      style={[styles.btn, { width: size, height: size, borderRadius: size / 2, backgroundColor: listening ? th.danger : th.card, borderColor: listening ? th.danger : th.border }]}
     >
       <Text style={{ fontSize: size * 0.45 }}>{listening ? "⏹" : "🎤"}</Text>
     </Pressable>

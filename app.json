@@ -2,7 +2,7 @@
   "expo": {
     "name": "Cep Fabrikası",
     "slug": "cep-fabrikasi",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -33,6 +33,21 @@
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox"
           ]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#F97316"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Fotoğraftan uygulama yapmak için seçtiğin görsele erişilir.",
+          "cameraPermission": "Fotoğraftan uygulama yapmak için kamera kullanılır.",
+          "microphonePermission": false
         }
       ]
     ]
