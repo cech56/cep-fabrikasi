@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["worker", "node_modules"]
+  "exclude": ["worker", "cizim-canlanir", "node_modules"]
 }
