@@ -157,3 +157,15 @@ export function decodeRoomData(data: Record<string, string>): Record<string, unk
   }
   return out;
 }
+
+// Mini uygulamanın yapay zekâ sorusu (cep.ai)
+export async function askAi(prompt: string, system: string): Promise<string> {
+  const data = await getJson("/api/ai", post({ prompt, system, lang: getLang(), deviceId: await getDeviceId() }));
+  return String(data.text ?? "");
+}
+
+export async function reportCrash(message: string, stack: string, version: string) {
+  try {
+    await fetch(`${base()}/api/crash`, post({ message, stack, version, deviceId: await getDeviceId() }));
+  } catch {}
+}

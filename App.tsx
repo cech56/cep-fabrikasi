@@ -1,8 +1,9 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, Share, View } from "react-native";
+import { Alert, Linking, Share, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { pinShortcut } from "./modules/cep-shortcut";
+import { pinShortcut, requestPinWidget, setWidgetApp, updateWidgetBody, widgetAppId } from "./modules/cep-shortcut";
 import {
   ImageInput,
   createRoom,
@@ -15,6 +16,7 @@ import {
   likeApp,
   pushRoomHtml,
   reportApp,
+  reportCrash,
   shareApp,
   shareUrl,
 } from "./src/api";
@@ -24,16 +26,21 @@ import { CARPIM_HTML } from "./src/samples/carpim";
 import { Generating } from "./src/screens/Generating";
 import { Home } from "./src/screens/Home";
 import { Pro } from "./src/screens/Pro";
-import { Profile } from "./src/screens/Profile";
+import { History } from "./src/screens/History";
+import { Onboarding } from "./src/screens/Onboarding";
+import { Settings } from "./src/screens/Settings";
 import { Runner } from "./src/screens/Runner";
 import {
   deleteApp,
   getAppData,
   getNickname,
+  isOnboarded,
   loadApps,
   mergeAppData,
   newId,
+  restoreVersion,
   setNickname as saveNickname,
+  setOnboarded,
   undoVersion,
   upsertApp,
   withNewVersion,
@@ -41,6 +48,16 @@ import {
 import { MiniApp, SharedApp } from "./src/types";
 
 setupNotifications();
+
+// Çökme raporu: yakalanmayan JS hataları sunucuya kısa bir kayıt olarak gider (kişisel veri yok)
+const g = globalThis as any;
+const prevHandler = g.ErrorUtils?.getGlobalHandler?.();
+g.ErrorUtils?.setGlobalHandler?.((error: any, isFatal?: boolean) => {
+  reportCrash(String(error?.message ?? error).slice(0, 500), String(error?.stack ?? "").slice(0, 4000), `${isFatal ? "fatal " : ""}0.4.0`);
+  prevHandler?.(error, isFatal);
+});
+
+const widgetKey = (id: string) => `cep/widget/${id}`;
 
 const SAMPLE: MiniApp = {
   id: "ornek-carpim",
@@ -84,7 +101,9 @@ export default function App() {
   const [busy, setBusy] = useState<Busy>(null);
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
   const [pro, setPro] = useState<{ reason?: string } | null>(null);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [onboard, setOnboard] = useState<boolean | null>(null);
   const [nickname, setNickname] = useState("");
   const [fresh, setFresh] = useState<Record<string, number>>({});
   const pendingLocal = useRef<string | null>(null);
@@ -92,6 +111,7 @@ export default function App() {
 
   useEffect(() => {
     loadLang().then(setLangState);
+    isOnboarded().then((v) => setOnboard(!v));
   }, []);
 
   const toggleLang = async () => {
@@ -323,6 +343,31 @@ export default function App() {
     else if (r !== "pinned") Alert.alert(t("pinFail"), r);
   };
 
+  // Widget'a koy: bu uygulamayı ana ekran widget'ında göster
+  const putOnWidget = async () => {
+    if (!open || preview) return;
+    const body = (await AsyncStorage.getItem(widgetKey(open.id))) || open.description;
+    const count = setWidgetApp(open.id, `${open.emoji} ${open.name}`, body);
+    if (count > 0) return Alert.alert(t("widgetSetTitle"), t("widgetSetBody"));
+    if (!requestPinWidget()) Alert.alert(t("widgetHowTitle"), t("widgetHowBody"));
+  };
+
+  // Mini uygulama cep.widget("...") ile özetini bildirdi
+  const widgetText = (text: string) => {
+    if (!open || preview) return;
+    AsyncStorage.setItem(widgetKey(open.id), text).catch(() => {});
+    if (widgetAppId() === open.id) updateWidgetBody(open.id, text);
+  };
+
+  const restore = async (index: number) => {
+    if (!open || preview) return;
+    const next = restoreVersion(open, index, t("historyRestore"));
+    await upsertApp(next);
+    await refresh();
+    setHistoryOpen(false);
+    if (next.roomId) pushRoomHtml(next.roomId, next.html).catch(() => {});
+  };
+
   const like = async () => {
     const id = preview?.parentId;
     if (!id) return;
@@ -388,6 +433,10 @@ export default function App() {
             onReport={open.parentId ? report : undefined}
             onLike={preview ? like : undefined}
             onSave={save}
+            onWidget={putOnWidget}
+            onWidgetText={widgetText}
+            onHistory={() => setHistoryOpen(true)}
+            onAiLimit={(m) => setPro({ reason: m })}
           />
         ) : (
           <Home
@@ -397,7 +446,7 @@ export default function App() {
             onOpen={(a) => setOpenId(a.id)}
             onOpenShared={openShared}
             onPro={() => setPro({})}
-            onProfile={() => setProfileOpen(true)}
+            onProfile={() => setSettingsOpen(true)}
             onToggleLang={toggleLang}
             onDelete={async (a) => {
               await cancelAllForApp(a.id);
@@ -408,15 +457,31 @@ export default function App() {
         )}
         {busy && <Generating mode={busy} />}
         <Pro visible={!!pro} reason={pro?.reason} onClose={() => setPro(null)} />
-        <Profile
-          visible={profileOpen}
+        <Settings
+          visible={settingsOpen}
           nickname={nickname}
-          onClose={() => setProfileOpen(false)}
-          onSave={(n) => {
+          onClose={() => setSettingsOpen(false)}
+          onToggleLang={() => {
+            setSettingsOpen(false);
+            toggleLang();
+          }}
+          onRestored={refresh}
+          onSaveNickname={(n) => {
             setNickname(n);
             saveNickname(n);
           }}
         />
+        <History app={historyOpen && open && !preview ? open : null} onRestore={restore} onClose={() => setHistoryOpen(false)} />
+        {onboard && (
+          <View style={StyleSheet.absoluteFill}>
+            <Onboarding
+              onDone={() => {
+                setOnboarded();
+                setOnboard(false);
+              }}
+            />
+          </View>
+        )}
       </View>
     </SafeAreaProvider>
   );

@@ -78,7 +78,7 @@ export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, on
             <Text style={{ color: th.ink, fontWeight: "800", fontSize: 13 }}>{getLang() === "tr" ? "🇹🇷 TR" : "🇬🇧 EN"}</Text>
           </Pressable>
           <Pressable onPress={onProfile} hitSlop={8} style={[styles.pill, { borderColor: th.border }]}>
-            <Text style={{ fontSize: 14 }}>👤</Text>
+            <Text style={{ fontSize: 14 }}>⚙️</Text>
           </Pressable>
           <Pressable onPress={onPro} hitSlop={8} style={[styles.pill, { borderColor: th.accent }]}>
             <Text style={{ color: th.accent, fontWeight: "800", fontSize: 13 }}>PRO</Text>

@@ -4,8 +4,10 @@ import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable,
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { canPinShortcut } from "../../modules/cep-shortcut";
-import { decodeRoomData, fetchRoom, fetchRoomChanges, pushRoomValue } from "../api";
+import { askAi, decodeRoomData, fetchRoom, fetchRoomChanges, pushRoomValue } from "../api";
+import { ensureCamera, startSensor, takePhoto, torch, vibrate } from "../capabilities";
 import { MicButton } from "../components/MicButton";
+import { Scanner } from "../components/Scanner";
 import { t } from "../i18n";
 import { cancelAllForApp, cancelForApp, scheduleForApp } from "../notify";
 import { BRIDGE_JS, wrapHtml } from "../runtime";
@@ -34,6 +36,10 @@ type Props = {
   onReport?: () => void;
   onLike?: () => void;
   onSave?: () => void;
+  onWidget: () => void;
+  onWidgetText: (text: string) => void;
+  onHistory: () => void;
+  onAiLimit: (message: string) => void;
 };
 
 export function Runner(p: Props) {
@@ -49,6 +55,23 @@ export function Runner(p: Props) {
   const since = useRef(0);
   const loadedAt = useRef(Date.now());
   const autoFixed = useRef(false);
+  const sensors = useRef<Record<number, () => void>>({});
+  const torchOn = useRef(false);
+  const [scanning, setScanning] = useState<null | ((v: string | null) => void)>(null);
+
+  const stopAll = useCallback(() => {
+    for (const stop of Object.values(sensors.current)) stop();
+    sensors.current = {};
+    if (torchOn.current) {
+      torchOn.current = false;
+      try {
+        torch(false);
+      } catch {}
+    }
+  }, []);
+
+  // Uygulama kapanınca ya da yeniden yüklenince sensörleri ve feneri kapat
+  useEffect(() => stopAll, [app.updatedAt, reloadKey, stopAll]);
 
   // Her yeni elle üretimde bir otomatik düzeltme hakkı
   useEffect(() => {
@@ -153,6 +176,51 @@ export function Runner(p: Props) {
         case "cancelAllNotify":
           await cancelAllForApp(app.id);
           return reply(msg.id!, true, true);
+        case "ai":
+          try {
+            return reply(msg.id!, true, await askAi(String(msg.payload?.prompt ?? ""), String(msg.payload?.system ?? "")));
+          } catch (err: any) {
+            if (/hakkın doldu|used today/.test(err?.message ?? "")) p.onAiLimit(err.message);
+            throw err;
+          }
+        case "vibrate":
+          vibrate(msg.payload?.pattern);
+          return reply(msg.id!, true, true);
+        case "torch":
+          torch(!!msg.payload?.on);
+          torchOn.current = !!msg.payload?.on;
+          return reply(msg.id!, true, true);
+        case "scanQR": {
+          if (preview) throw new Error(t("notifPreview"));
+          await ensureCamera(app.id, app.name);
+          const data = await new Promise<string | null>((resolve) => setScanning(() => resolve));
+          setScanning(null);
+          return reply(msg.id!, true, data);
+        }
+        case "takePhoto":
+          if (preview) throw new Error(t("notifPreview"));
+          return reply(msg.id!, true, await takePhoto(app.id, app.name));
+        case "sensor": {
+          const sid = Number(msg.payload?.sid);
+          let last = 0;
+          const stop = await startSensor(app.id, app.name, String(msg.payload?.type), (v) => {
+            const now = Date.now();
+            if (now - last < 180) return;
+            last = now;
+            web.current?.injectJavaScript(`window.__cepSensor(${sid}, ${JSON.stringify(v)}); true;`);
+          });
+          sensors.current[sid] = stop;
+          return reply(msg.id!, true, true);
+        }
+        case "sensorStop": {
+          const sid = Number(msg.payload?.sid);
+          sensors.current[sid]?.();
+          delete sensors.current[sid];
+          return;
+        }
+        case "widget":
+          if (!preview) p.onWidgetText(String(msg.payload ?? ""));
+          return;
         case "error": {
           const err = String(msg.payload).slice(0, 200);
           setError(err);
@@ -237,6 +305,8 @@ export function Runner(p: Props) {
         {preview && p.onLike && <Action label={p.liked ? t("liked") : t("like")} onPress={p.onLike} />}
         {!preview && <Action label={t("beautify")} onPress={() => p.onEdit(t("beautifyPrompt"))} />}
         {!preview && <Action label={app.roomId ? t("invite") : t("together_")} onPress={p.onTogether} />}
+        {!preview && pinnable && <Action label={t("widget")} onPress={p.onWidget} />}
+        {!preview && <Action label={t("history")} onPress={p.onHistory} />}
         <Action label={t("share")} onPress={p.onShare} />
         {pinnable && <Action label={t("pin")} onPress={p.onPin} />}
         {p.onReport && <Action label={t("report")} onPress={p.onReport} />}
@@ -265,6 +335,7 @@ export function Runner(p: Props) {
           </View>
         </KeyboardAvoidingView>
       )}
+      <Scanner visible={!!scanning} onResult={(v) => scanning?.(v)} />
     </SafeAreaView>
   );
 }

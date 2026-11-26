@@ -41,6 +41,9 @@ export const BRIDGE_JS = `
     ok ? p.resolve(value) : p.reject(new Error(value));
   };
   var listeners = [];
+  var sensors = {};
+  var sensorSeq = 0;
+  window.__cepSensor = function (sid, value) { var f = sensors[sid]; if (f) { try { f(value); } catch (e) {} } };
   window.__cepChanged = function (keys) {
     for (var i = 0; i < listeners.length; i++) { try { listeners[i](keys); } catch (e) { window.onerror && window.onerror(String(e)); } }
   };
@@ -55,7 +58,19 @@ export const BRIDGE_JS = `
     },
     notify: function (opts) { return call("notify", opts || {}); },
     cancelNotify: function (id) { return call("cancelNotify", { id: String(id) }); },
-    cancelAllNotify: function () { return call("cancelAllNotify", {}); }
+    cancelAllNotify: function () { return call("cancelAllNotify", {}); },
+    ai: function (prompt, opts) { return call("ai", { prompt: String(prompt), system: opts && opts.system ? String(opts.system) : "" }); },
+    vibrate: function (pattern) { return call("vibrate", { pattern: pattern }); },
+    torch: function (on) { return call("torch", { on: !!on }); },
+    scanQR: function () { return call("scanQR", {}); },
+    takePhoto: function () { return call("takePhoto", {}); },
+    widget: function (text) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: "widget", payload: String(text == null ? "" : text).slice(0, 300) })); },
+    sensor: function (type, fn) {
+      var sid = ++sensorSeq;
+      sensors[sid] = fn;
+      call("sensor", { type: String(type), sid: sid }).catch(function (e) { delete sensors[sid]; window.onerror && window.onerror("cep.sensor: " + e.message); });
+      return function () { delete sensors[sid]; window.ReactNativeWebView.postMessage(JSON.stringify({ type: "sensorStop", payload: { sid: sid } })); };
+    }
   };
   window.alert = function (m) { console.log(m); };
   window.confirm = function () { return true; };

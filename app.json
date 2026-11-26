@@ -2,7 +2,7 @@
   "expo": {
     "name": "Cep Fabrikası",
     "slug": "cep-fabrikasi",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -47,6 +47,14 @@
         {
           "photosPermission": "Fotoğraftan uygulama yapmak için seçtiğin görsele erişilir.",
           "cameraPermission": "Fotoğraftan uygulama yapmak için kamera kullanılır."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Mini uygulamalarda QR kod okumak ve fotoğraf çekmek için kamera kullanılır.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
         }
       ]
     ]

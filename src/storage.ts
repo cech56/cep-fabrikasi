@@ -4,7 +4,7 @@ import { MiniApp } from "./types";
 const APPS_KEY = "cep/apps/v1";
 const DEVICE_KEY = "cep/device-id";
 const dataKey = (appId: string) => `cep/appdata/${appId}`;
-const MAX_HISTORY = 5;
+const MAX_HISTORY = 10;
 
 export function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -92,4 +92,47 @@ export async function setAppValue(appId: string, key: string, value: unknown) {
   const raw = JSON.stringify(data);
   if (raw.length > 2_000_000) throw new Error("Depolama sınırı aşıldı");
   await AsyncStorage.setItem(dataKey(appId), raw);
+}
+
+// Geçmişteki bir sürüme dön (şu anki sürüm de geçmişe eklenir, yani bu da geri alınabilir)
+export function restoreVersion(app: MiniApp, index: number, label: string): MiniApp {
+  const target = app.history[index];
+  if (!target) return app;
+  const rest = app.history.filter((_, i) => i !== index);
+  const history = [{ prompt: label, html: app.html, at: app.updatedAt }, ...rest].slice(0, MAX_HISTORY);
+  return { ...app, html: target.html, history, updatedAt: Date.now() };
+}
+
+// ---- Yedekleme ----
+export type Backup = { kind: "cep-fabrikasi-backup"; version: 1; createdAt: number; apps: MiniApp[]; data: Record<string, Record<string, unknown>> };
+
+export async function makeBackup(): Promise<Backup> {
+  const apps = await loadApps();
+  const data: Backup["data"] = {};
+  for (const a of apps) data[a.id] = await getAppData(a.id);
+  return { kind: "cep-fabrikasi-backup", version: 1, createdAt: Date.now(), apps, data };
+}
+
+// Aynı kimlikli uygulamalar güncellenir, yeniler eklenir; mevcut başka uygulamalara dokunulmaz.
+export async function restoreBackup(b: unknown): Promise<number> {
+  const bk = b as Backup;
+  if (!bk || bk.kind !== "cep-fabrikasi-backup" || !Array.isArray(bk.apps)) throw new Error("bad");
+  const current = await loadApps();
+  for (const a of bk.apps) {
+    if (!a?.id || typeof a.html !== "string") continue;
+    const i = current.findIndex((c) => c.id === a.id);
+    if (i >= 0) current[i] = a;
+    else current.push(a);
+    if (bk.data?.[a.id]) await AsyncStorage.setItem(dataKey(a.id), JSON.stringify(bk.data[a.id]));
+  }
+  await saveApps(current);
+  return bk.apps.length;
+}
+
+const ONBOARD_KEY = "cep/onboarded";
+export async function isOnboarded() {
+  return (await AsyncStorage.getItem(ONBOARD_KEY)) === "1";
+}
+export async function setOnboarded() {
+  await AsyncStorage.setItem(ONBOARD_KEY, "1");
 }
