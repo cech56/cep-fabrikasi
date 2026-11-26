@@ -35,7 +35,9 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
   const stage = useRef<StageHandle>(null);
   const [onStage, setOnStage] = useState<Character[]>(initial);
   const [scanning, setScanning] = useState(!!photo);
-  const [banner, setBanner] = useState<string | null>(photo ? "Çizimin taranıyor… ✨" : null);
+  const [banner, setBanner] = useState<string | null>(null);
+  // kesim ekranı: otomatik seçim + parmakla özel kesim
+  const [editing, setEditing] = useState<null | { ok: boolean; lasso: boolean; exact: boolean }>(photo ? { ok: false, lasso: false, exact: false } : null);
   const [rec, setRec] = useState<null | number>(null); // kayıt başlangıcı
   const [, tick] = useState(0);
   const [video, setVideo] = useState<{ uri: string; mime: string } | null>(null);
@@ -115,6 +117,9 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
         if (!photo && initial.length === 1) setTimeout(() => speak(initial[0], initial[0].greeting), 1200);
         break;
       }
+      case "edit":
+        setEditing({ ok: !!m.ok, lasso: !!m.lasso, exact: !!m.exact });
+        break;
       case "cutout": {
         if (m.result?.ok) return born(m.result);
         setScanning(false);
@@ -181,6 +186,14 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
     setTimeout(() => speak(c, "Ben de geldim!"), 1800);
   };
 
+  const confirmCut = () => {
+    if (!editing?.ok) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setEditing(null);
+    setBanner("Çizimin canlanıyor… ✨");
+    send({ type: "editDone" });
+  };
+
   const single = onStage.length === 1 ? onStage[0] : null;
   const left = rec != null ? Math.max(0, Math.ceil((REC_MS - (Date.now() - rec)) / 1000)) : 0;
   const others = allChars.filter((c) => !onStage.some((x) => x.id === c.id));
@@ -209,13 +222,47 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
         )}
       </View>
 
+      {editing && (
+        <>
+          <View style={[s.editTop, { top: insets.top + 64 }]} pointerEvents="none">
+            <Text style={s.editTitle}>{editing.ok ? "Çizimin doğru seçildi mi?" : "Çizimi bulamadım"}</Text>
+            <Text style={s.editSub}>
+              {editing.lasso ? "Yeniden çizmek için parmağınla tekrar etrafını çiz." : "Değilse parmağınla çizimin etrafını çiz, ben oradan keseyim."}
+            </Text>
+          </View>
+          <View style={[s.bottom, { paddingBottom: insets.bottom + 14, paddingHorizontal: 16 }]}>
+            {editing.lasso && (
+              <View style={s.modeRow}>
+                <Pressable style={[s.mode, !editing.exact && s.modeOn]} onPress={() => send({ type: "editMode", exact: false })}>
+                  <Text style={[s.modeT, !editing.exact && s.modeTOn]}>✨ Akıllı kes</Text>
+                </Pressable>
+                <Pressable style={[s.mode, editing.exact && s.modeOn]} onPress={() => send({ type: "editMode", exact: true })}>
+                  <Text style={[s.modeT, editing.exact && s.modeTOn]}>✂️ Çizdiğim yerden</Text>
+                </Pressable>
+                <Pressable style={s.mode} onPress={() => send({ type: "editReset" })}>
+                  <Text style={s.modeT}>↺</Text>
+                </Pressable>
+              </View>
+            )}
+            <View style={s.editRow}>
+              <Pressable style={s.editGhost} onPress={onRetry}>
+                <Text style={s.editGhostT}>📸 Tekrar çek</Text>
+              </Pressable>
+              <Pressable style={[s.editOk, !editing.ok && { opacity: 0.4 }]} onPress={confirmCut} disabled={!editing.ok}>
+                <Text style={s.editOkT}>Canlandır ✨</Text>
+              </Pressable>
+            </View>
+          </View>
+        </>
+      )}
+
       {banner && (
         <View style={[s.banner, { top: insets.top + 66 }]} pointerEvents="none">
           <Text style={s.bannerT}>{banner}</Text>
         </View>
       )}
 
-      {!scanning && (
+      {!scanning && !editing && (
         <View style={[s.bottom, { paddingBottom: insets.bottom + 12 }]} pointerEvents="box-none">
           <View style={s.recRow} pointerEvents="box-none">
             {video && rec == null ? (
@@ -305,6 +352,19 @@ const s = StyleSheet.create({
   btnE: { fontSize: 30 },
   btnT: { color: "#fff", fontSize: 12, fontWeight: "700", marginTop: 2 },
   hint: { color: "rgba(255,255,255,0.75)", fontSize: 11, textAlign: "center", marginTop: 8, paddingHorizontal: 16 },
+  editTop: { position: "absolute", left: 20, right: 20, alignItems: "center" },
+  editTitle: { color: "#fff", fontSize: 20, fontWeight: "900", textAlign: "center" },
+  editSub: { color: C.muted, fontSize: 14, textAlign: "center", marginTop: 4 },
+  modeRow: { flexDirection: "row", gap: 8, justifyContent: "center", marginBottom: 12 },
+  mode: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, backgroundColor: C.card },
+  modeOn: { backgroundColor: C.purple },
+  modeT: { color: "#fff", fontWeight: "700" },
+  modeTOn: { color: C.dark },
+  editRow: { flexDirection: "row", gap: 10 },
+  editGhost: { flex: 1, padding: 16, borderRadius: 18, backgroundColor: C.card, alignItems: "center" },
+  editGhostT: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  editOk: { flex: 1.4, padding: 16, borderRadius: 18, backgroundColor: C.yellow, alignItems: "center" },
+  editOkT: { color: C.dark, fontWeight: "900", fontSize: 17 },
   sheetBack: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: { backgroundColor: C.card, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18 },
   sheetT: { color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 12 },

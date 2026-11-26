@@ -26,6 +26,7 @@ var particles = [];
 var bubbles = [];
 var camOn = false, camReady = false, camStream = null;
 var scanImg = null, scanT0 = 0, scanFade = 0;
+var edit = null; // { src, img, result, lasso: [], drawing: [], exact, busy }
 var recorder = null, recChunks = [], recT0 = 0, recMax = 15000;
 var audio = null, audioDest = null;
 var tilt = { b0: null, g0: null, ox: 0, oy: 0, tx: 0, ty: 0 };
@@ -109,7 +110,8 @@ function depthScale(y){ return lerp(0.55, 1.2, clamp((y - floorTop())/(floorBott
 function loadImage(src){
   return new Promise(function(res, rej){ var im = new Image(); im.onload = function(){ res(im); }; im.onerror = rej; im.src = src; });
 }
-function cutout(src){
+function cutout(src, opts){
+  opts = opts || {};
   return loadImage(src).then(function(img){
     var maxWork = 420;
     var sc = Math.min(1, maxWork / Math.max(img.width, img.height));
@@ -118,6 +120,16 @@ function cutout(src){
     var x = c.getContext('2d'); x.drawImage(img, 0, 0, w, h);
     var d = x.getImageData(0,0,w,h).data;
     var n = w*h, L = new Float32Array(n), C = new Float32Array(n), i;
+    // parmakla çizilen kesim çizgisi (0..1 koordinatlar)
+    var inL = null, lasso = opts.lasso && opts.lasso.length > 5 ? opts.lasso : null;
+    if (lasso) {
+      var lc0 = document.createElement('canvas'); lc0.width = w; lc0.height = h;
+      var lx0 = lc0.getContext('2d'); lx0.fillStyle = '#fff'; lx0.beginPath();
+      lasso.forEach(function(pt, k){ if (k) lx0.lineTo(pt[0]*w, pt[1]*h); else lx0.moveTo(pt[0]*w, pt[1]*h); });
+      lx0.closePath(); lx0.fill();
+      var ld0 = lx0.getImageData(0,0,w,h).data; inL = new Uint8Array(n);
+      for (var li=0; li<n; li++) inL[li] = ld0[li*4+3] > 127 ? 1 : 0;
+    }
     for (i=0;i<n;i++){
       var r=d[i*4], g=d[i*4+1], b=d[i*4+2];
       L[i] = 0.299*r + 0.587*g + 0.114*b;
@@ -168,6 +180,7 @@ function cutout(src){
       for (i=0;i<n;i++) paper[i] = bg[i] ? 0 : 1;
       if (bestArea < n*0.15) paper.fill(1);
     }
+    if (inL) { for (i=0;i<n;i++) if (!inL[i]) paper[i] = 0; }
     // 2) kâğıt üstünde mürekkep: yerel kâğıt parlaklığından belirgin koyu ya da renkli olan
     var PL = new Float32Array(n), PC = new Float32Array(n), PN = new Float32Array(n);
     for (i=0;i<n;i++) if (paper[i] && bright[i]) { PL[i]=L[i]; PC[i]=C[i]; PN[i]=1; }
@@ -209,6 +222,8 @@ function cutout(src){
       if (xe===0||ye===0||xe===w-1||ye===h-1||!paper[pe-1]||!paper[pe+1]||!paper[pe-w]||!paper[pe+w]) nearEdge[pe]=1; }
     var mask = new Uint8Array(n);
     for (i=0;i<n;i++) mask[i] = outside[i] ? 0 : 1;
+    // "tam çizdiğim yerden kes": otomatik algılamayı atla, çizgiyi aynen kullan
+    if (inL && opts.exact) { for (i=0;i<n;i++) mask[i] = inL[i]; }
     // bağlı parçalar
     var lab = new Int32Array(n), comps = [], id = 0;
     for (i=0;i<n;i++){
@@ -224,7 +239,7 @@ function cutout(src){
     }
     var edgeHits = {};
     for (i=0;i<n;i++) if (nearEdge[i] && lab[i]) edgeHits[lab[i]] = (edgeHits[lab[i]]||0) + 1;
-    comps.forEach(function(c){ c.touches = (edgeHits[c.id]||0) > 0; });
+    comps.forEach(function(c){ c.touches = !inL && (edgeHits[c.id]||0) > 0; });
     var cand = comps.filter(function(c){ return !c.touches || c.area > n*0.35; });
     if (!cand.length) cand = comps.filter(function(c){ return c.area < n*0.6; });
     var maxA = cand.reduce(function(m,c){ return Math.max(m,c.area); }, 0);
@@ -617,6 +632,49 @@ function drawBackground(t){
   ctx.globalAlpha = 1;
 }
 
+function editRect(){
+  var im = edit.img, s = Math.min(W/im.width, (H*0.78)/im.height);
+  var w = im.width*s, h = im.height*s;
+  return { x: (W-w)/2, y: (H*0.82 - h)/2 + H*0.04, w: w, h: h };
+}
+function drawEdit(t){
+  if (!edit || !edit.img) return;
+  var r = editRect();
+  ctx.save();
+  ctx.fillStyle = '#140f26'; ctx.fillRect(0,0,W,H);
+  ctx.drawImage(edit.img, r.x, r.y, r.w, r.h);
+  var res = edit.result;
+  if (res && res.ok && edit.cutImg) {
+    // seçilmeyen yerleri karart, seçileni parlat
+    ctx.fillStyle = 'rgba(15,10,30,0.72)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+    var cx = r.x + res.rect.x*r.w, cy = r.y + res.rect.y*r.h, cw = res.rect.w*r.w, ch = res.rect.h*r.h;
+    var pulse = 0.55 + 0.45*Math.sin(t/260);
+    ctx.shadowColor = 'rgba(255,210,63,' + pulse + ')'; ctx.shadowBlur = 18;
+    ctx.drawImage(edit.cutImg, cx, cy, cw, ch);
+    ctx.shadowBlur = 0;
+  }
+  var pts = edit.drawing.length ? edit.drawing : edit.lasso;
+  if (pts.length > 1) {
+    ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.setLineDash([10, 8]); ctx.lineDashOffset = -t/30;
+    ctx.beginPath();
+    pts.forEach(function(p, k){ var X = r.x + p[0]*r.w, Y = r.y + p[1]*r.h; if (k) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); });
+    if (!edit.drawing.length) ctx.closePath();
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (edit.busy) { ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 18px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Kesiliyor…', W/2, r.y + r.h/2); }
+  ctx.restore();
+}
+function runEdit(){
+  if (!edit) return;
+  edit.busy = true;
+  var opts = { lasso: edit.lasso.length > 5 ? edit.lasso : null, exact: edit.exact };
+  cutout(edit.src, opts).then(function(res){
+    edit.busy = false; edit.result = res;
+    if (res.ok) loadImage(res.png).then(function(im){ if (edit) edit.cutImg = im; }); else edit.cutImg = null;
+    post({ type:'edit', ok: !!res.ok, lasso: edit.lasso.length > 5, exact: edit.exact });
+  }).catch(function(e){ edit.busy = false; edit.result = { ok:false }; post({ type:'edit', ok:false, error:String(e) }); });
+}
 function drawScan(t){
   if (!scanImg) return;
   var k = (t - scanT0)/1000;
@@ -649,6 +707,7 @@ function frame(){
   drawParticles(t, dt);
   drawBubbles(t);
   drawScan(t);
+  drawEdit(t);
   if (recorder) {
     ctx.save();
     ctx.font = '700 ' + Math.round(W/26) + 'px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -668,12 +727,15 @@ function hit(x, y){
   return null;
 }
 var down = null;
+function editPoint(e){ var r = editRect(); return [clamp((e.clientX - r.x)/r.w, 0, 1), clamp((e.clientY - r.y)/r.h, 0, 1)]; }
 cv.addEventListener('pointerdown', function(e){
   ensureAudio();
+  if (edit) { if (!edit.busy) edit.drawing = [editPoint(e)]; return; }
   var c = hit(e.clientX, e.clientY);
   down = { x: e.clientX, y: e.clientY, t: now(), c: c, moved: false };
 });
 cv.addEventListener('pointermove', function(e){
+  if (edit) { if (edit.drawing.length) { var p = editPoint(e), q = edit.drawing[edit.drawing.length-1]; if (Math.abs(p[0]-q[0]) + Math.abs(p[1]-q[1]) > 0.006) edit.drawing.push(p); } return; }
   if (!down) return;
   if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) down.moved = true;
   if (down.moved && down.c) {
@@ -683,6 +745,11 @@ cv.addEventListener('pointermove', function(e){
   }
 });
 function up(e){
+  if (edit) {
+    var pts = edit.drawing; edit.drawing = [];
+    if (pts.length > 8) { edit.lasso = pts; sfx.pop(); runEdit(); }
+    return;
+  }
   if (!down) return;
   var d = down; down = null;
   if (d.c && d.c.picked) { d.c.picked = false; d.c.z = d.c.height()*0.25; d.c.vz = 0; d.c.setState('idle'); return; }
@@ -757,9 +824,20 @@ function handle(m){
   switch (m.type) {
     case 'camera': if (m.on) startCamera(); else stopCamera(); break;
     case 'scan':
-      loadImage(m.src).then(function(im){ scanImg = im; scanT0 = now(); scanFade = 0; ensureAudio(); });
-      cutout(m.src).then(function(r){ post({ type:'cutout', result: r }); }).catch(function(e){ post({ type:'cutout', result: { ok:false, error: String(e) } }); });
+      // önce kesim ekranı: otomatik seçim gösterilir, parmakla düzeltilebilir
+      edit = { src: m.src, img: null, result: null, lasso: [], drawing: [], exact: false, busy: true };
+      loadImage(m.src).then(function(im){ if (edit) { edit.img = im; runEdit(); } });
       break;
+    case 'editMode': if (edit) { edit.exact = !!m.exact; if (edit.lasso.length > 5) runEdit(); } break;
+    case 'editReset': if (edit) { edit.lasso = []; edit.exact = false; runEdit(); } break;
+    case 'editDone':
+      if (edit && edit.result && edit.result.ok) {
+        scanImg = edit.img; scanT0 = now(); scanFade = 0;
+        var r0 = edit.result; edit = null;
+        post({ type:'cutout', result: r0 });
+      }
+      break;
+    case 'editCancel': edit = null; break;
     case 'scanDone': scanFade = now(); break;
     case 'add':
       addChar(m.char, { birth: !!m.birth }).then(function(){ post({ type:'added', id: m.char.id }); }).catch(function(e){ post({ type:'error', error:String(e) }); });

@@ -59,7 +59,8 @@ export default function App() {
           return;
         }
       }
-      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], allowsEditing: true, quality: 0.9 };
+      // Kırpma yok: kesim uygulamanın kendi ekranında (otomatik + parmakla özel kesim)
+      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], allowsEditing: false, quality: 0.9 };
       const r = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
       if (r.canceled || !r.assets?.[0]) return;
       const a = r.assets[0];
