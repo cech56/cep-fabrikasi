@@ -23,6 +23,16 @@ type Props = {
   onBack: () => void;
 };
 
+const SCENES = [
+  { id: "camera", e: "📷", t: "Kamera" },
+  { id: "masa", e: "🪵", t: "Masa" },
+  { id: "sinif", e: "🏫", t: "Sınıf" },
+  { id: "park", e: "🌳", t: "Park" },
+  { id: "sahil", e: "🏖️", t: "Sahil" },
+  { id: "uzay", e: "🚀", t: "Uzay" },
+  { id: "kar", e: "⛄", t: "Karlı orman" },
+];
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const REC_MS = 10_000;
 
@@ -43,6 +53,8 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
   const [video, setVideo] = useState<{ uri: string; mime: string } | null>(null);
   const [gate, setGate] = useState<null | { reason: string; then: () => void }>(null);
   const [friends, setFriends] = useState(false);
+  const [scenes, setScenes] = useState(false);
+  const [scene, setScene] = useState("camera");
   const chunks = useRef<string[]>([]);
   const castRef = useRef(onStage);
   castRef.current = onStage;
@@ -111,7 +123,7 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
   const onMessage = async (m: any) => {
     switch (m.type) {
       case "ready": {
-        send({ type: "camera", on: true });
+        send({ type: "scene", name: scene });
         for (const c of initial) send({ type: "add", char: await toStage(c) });
         if (photo) send({ type: "scan", src: photo });
         if (!photo && initial.length === 1) setTimeout(() => speak(initial[0], initial[0].greeting), 1200);
@@ -275,6 +287,7 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
             </Pressable>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.actions}>
+            <Btn e="🏞️" t="Yer" onPress={() => setScenes(true)} />
             <Btn e="🚶" t="Yürü" onPress={() => act("walk")} />
             <Btn e="🦘" t="Zıpla" onPress={() => act("jump")} />
             <Btn e="💃" t="Dans" onPress={() => act("dance")} />
@@ -304,6 +317,31 @@ export function Play({ initial, photo, settings, allChars, onCreated, onDelete, 
                 </Pressable>
               ))}
             </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={scenes} transparent animationType="slide" onRequestClose={() => setScenes(false)}>
+        <Pressable style={s.sheetBack} onPress={() => setScenes(false)}>
+          <View style={[s.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={s.sheetT}>Nerede oynasın?</Text>
+            <View style={s.sceneGrid}>
+              {SCENES.map((sc) => (
+                <Pressable
+                  key={sc.id}
+                  style={[s.scene, scene === sc.id && s.sceneOn]}
+                  onPress={() => {
+                    setScene(sc.id);
+                    setScenes(false);
+                    send({ type: "scene", name: sc.id });
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  }}
+                >
+                  <Text style={{ fontSize: 34 }}>{sc.e}</Text>
+                  <Text style={[s.sceneT, scene === sc.id && { color: C.dark }]}>{sc.t}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -365,6 +403,10 @@ const s = StyleSheet.create({
   editGhostT: { color: "#fff", fontWeight: "800", fontSize: 16 },
   editOk: { flex: 1.4, padding: 16, borderRadius: 18, backgroundColor: C.yellow, alignItems: "center" },
   editOkT: { color: C.dark, fontWeight: "900", fontSize: 17 },
+  sceneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  scene: { width: "30%", flexGrow: 1, backgroundColor: C.card2, borderRadius: 18, paddingVertical: 14, alignItems: "center" },
+  sceneOn: { backgroundColor: C.yellow },
+  sceneT: { color: "#fff", fontWeight: "800", marginTop: 4 },
   sheetBack: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: { backgroundColor: C.card, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18 },
   sheetT: { color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 12 },
