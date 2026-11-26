@@ -14,6 +14,8 @@ export type Env = {
   REPORTS_TO_HIDE?: string;
 };
 
+export type ImageInput = { mime: string; data: string };
+
 export class ProviderError extends Error {
   constructor(message: string, public status = 502) {
     super(message);
@@ -21,7 +23,7 @@ export class ProviderError extends Error {
 }
 
 
-async function generateWithGemini(env: Env, userMessage: string): Promise<GeneratedApp> {
+async function generateWithGemini(env: Env, userMessage: string, image?: ImageInput): Promise<GeneratedApp> {
   if (!env.GEMINI_API_KEY) throw new ProviderError("GEMINI_API_KEY eksik", 500);
   // Akışlı uç nokta: uzun üretimlerde bağlantı boşta kalıp zaman aşımına düşmesin.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:streamGenerateContent?alt=sse`;
@@ -30,7 +32,7 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
     headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT + TEXT_OUTPUT_RULES }] },
-      contents: [{ role: "user", parts: [{ text: userMessage }] }],
+      contents: [{ role: "user", parts: [...(image ? [{ inline_data: { mime_type: image.mime, data: image.data } }] : []), { text: userMessage }] }],
       generationConfig: {
         maxOutputTokens: 32000,
         // Düşünme seviyesi düşük = çok daha hızlı üretim. Boş bırakılırsa modelin varsayılanı kullanılır.
@@ -74,13 +76,13 @@ async function generateWithGemini(env: Env, userMessage: string): Promise<Genera
   }
   if (finishReason === "MAX_TOKENS") throw new ProviderError("Uygulama çok uzun oldu, daha sade anlatmayı dene.", 422);
   if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
-    return { name: "", emoji: "", description: "", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
+    return { name: "", emoji: "", description: "", category: "diger", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
   }
   if (!text) throw new ProviderError("Gemini boş yanıt döndü");
   return parseTextOutput(text);
 }
 
-async function generateWithAnthropic(env: Env, userMessage: string): Promise<GeneratedApp> {
+async function generateWithAnthropic(env: Env, userMessage: string, image?: ImageInput): Promise<GeneratedApp> {
   if (!env.ANTHROPIC_API_KEY) throw new ProviderError("ANTHROPIC_API_KEY eksik", 500);
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   try {
@@ -92,11 +94,21 @@ async function generateWithAnthropic(env: Env, userMessage: string): Promise<Gen
         fallbacks: "default",
         output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
         system: SYSTEM_PROMPT + JSON_OUTPUT_RULES,
-        messages: [{ role: "user", content: userMessage }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...(image
+                ? [{ type: "image" as const, source: { type: "base64" as const, media_type: image.mime as "image/jpeg" | "image/png" | "image/webp", data: image.data } }]
+                : []),
+              { type: "text" as const, text: userMessage },
+            ],
+          },
+        ],
       })
       .finalMessage();
     if (message.stop_reason === "refusal") {
-      return { name: "", emoji: "", description: "", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
+      return { name: "", emoji: "", description: "", category: "diger", html: "", refused: true, refusal_reason: "Bu isteği yapamıyorum, başka bir şey dener misin?" };
     }
     if (message.stop_reason === "max_tokens") throw new ProviderError("Uygulama çok uzun oldu, daha sade anlatmayı dene.", 422);
     const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
@@ -109,6 +121,6 @@ async function generateWithAnthropic(env: Env, userMessage: string): Promise<Gen
   }
 }
 
-export function generate(env: Env, userMessage: string) {
-  return env.AI_PROVIDER === "anthropic" ? generateWithAnthropic(env, userMessage) : generateWithGemini(env, userMessage);
+export function generate(env: Env, userMessage: string, image?: ImageInput) {
+  return env.AI_PROVIDER === "anthropic" ? generateWithAnthropic(env, userMessage, image) : generateWithGemini(env, userMessage, image);
 }

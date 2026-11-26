@@ -31,3 +31,32 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (app_id, device_id)
 );
+
+CREATE TABLE IF NOT EXISTS likes (
+  app_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (app_id, device_id)
+);
+CREATE INDEX IF NOT EXISTS likes_recent ON likes (created_at);
+
+-- Birlikte kullan: ortak uygulama odaları ve canlı veriler
+CREATE TABLE IF NOT EXISTS rooms (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  html TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  html_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS room_data (
+  room_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (room_id, key)
+);
+CREATE INDEX IF NOT EXISTS room_data_changes ON room_data (room_id, updated_at);

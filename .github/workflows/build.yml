@@ -65,6 +65,12 @@ jobs:
           res=$(curl -s -X POST -H "$auth" -H "Content-Type: application/json" --data "$sql" "$api/$id/query")
           echo "$res" | jq '{success, errors}'
           [ "$(echo "$res" | jq -r '.success')" = "true" ] || exit 1
+          # Sütun eklemeler: zaten varsa hata verir, sorun değil.
+          while IFS= read -r stmt; do
+            [ -z "$stmt" ] && continue
+            r=$(curl -s -X POST -H "$auth" -H "Content-Type: application/json" --data "$(jq -n --arg s "$stmt" '{sql:$s}')" "$api/$id/query")
+            echo "$stmt -> $(echo "$r" | jq -r 'if .success then "eklendi" else (.errors[0].message // "atlandı") end')"
+          done < migrations.sql
           printf '\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = "cep-fabrikasi"\ndatabase_id = "%s"\n' "$id" >> wrangler.toml
           echo "D1 hazır: $id"
       - name: Yayınla
