@@ -93,11 +93,11 @@ window.addEventListener('deviceorientation', function(e){
   if (e.beta == null || e.gamma == null) return;
   if (tilt.b0 == null) { tilt.b0 = e.beta; tilt.g0 = e.gamma; }
   var k = W / 55;
-  tilt.tx = clamp(-(e.gamma - tilt.g0) * k, -W*0.6, W*0.6);
-  tilt.ty = clamp(-(e.beta - tilt.b0) * k, -H*0.5, H*0.5);
+  tilt.tx = clamp(-(e.gamma - tilt.g0) * k, -W*0.3, W*0.3);
+  tilt.ty = clamp(-(e.beta - tilt.b0) * k, -H*0.22, H*0.22);
   // yavaşça yeni duruşa alış (telefon uzun süre farklı tutulursa sahne ortalanır)
-  tilt.b0 += (e.beta - tilt.b0) * 0.004;
-  tilt.g0 += (e.gamma - tilt.g0) * 0.004;
+  tilt.b0 += (e.beta - tilt.b0) * 0.012;
+  tilt.g0 += (e.gamma - tilt.g0) * 0.012;
 });
 
 // ---------------- Zemin ve perspektif ----------------
