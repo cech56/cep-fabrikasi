@@ -34,6 +34,12 @@ const SCENES = [
   { id: "sahil", e: "🏖️", t: "Sahil" },
   { id: "uzay", e: "🚀", t: "Uzay" },
   { id: "kar", e: "⛄", t: "Karlı orman" },
+  { id: "ciftlik", e: "🐄", t: "Çiftlik" },
+  { id: "sato", e: "🏰", t: "Şato" },
+  { id: "denizalti", e: "🐠", t: "Deniz altı" },
+  { id: "parti", e: "🎂", t: "Doğum günü" },
+  { id: "kamp", e: "🏕️", t: "Kamp gecesi" },
+  { id: "dinozor", e: "🦕", t: "Dinozor vadisi" },
 ];
 
 const ACCS = [
@@ -51,6 +57,12 @@ const GAMES = [
 ];
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Konuşma motorunu bozan emoji ve işaretleri temizle
+const speakable = (t: string) =>
+  t.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "").replace(/[*_#~"“”«»()[\]{}<>|]/g, "").replace(/\s+/g, " ").trim();
+// Uzun metni cümlelere böl: telefonun sesi kısa parçalarda daha düzgün okur
+const sentences = (t: string) => (speakable(t).match(/[^.!?…]+[.!?…]*/g) ?? []).map((x) => x.trim()).filter(Boolean);
+const charVoice = (pitch: number) => (pitch > 1.35 ? "Leda" : pitch < 1.0 ? "Fenrir" : "Puck");
 const REC_MS = 10_000;
 const REC_STORY_MS = 90_000;
 
@@ -80,7 +92,7 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
   const [story, setStory] = useState<null | { title: string; text: string; loading?: boolean }>(null);
   const storyRun = useRef(0);
   const recRef = useRef(false);
-  const tokens = useRef(new Map<number, () => void>());
+  const tokens = useRef(new Map<number, (ok: boolean) => void>());
   const tokenSeq = useRef(0);
   const chunks = useRef<string[]>([]);
   const castRef = useRef(onStage);
@@ -109,13 +121,31 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
 
   // Sahnede ses çal (videoya girer) ve bitince devam et
   const stageAudio = (cmd: Record<string, unknown>) =>
-    new Promise<void>((res) => {
+    new Promise<boolean>((res) => {
       const token = ++tokenSeq.current;
       tokens.current.set(token, res);
       send({ ...cmd, token });
       setTimeout(() => {
-        if (tokens.current.delete(token)) res();
-      }, 25_000);
+        if (tokens.current.delete(token)) res(false);
+      }, 40_000);
+    });
+
+  // Telefonun Türkçe sesi, cümle cümle
+  const deviceSay = (text: string, pitch: number, rate: number) =>
+    new Promise<void>((res) => {
+      const parts = sentences(text);
+      if (!parts.length) return res();
+      parts.forEach((p, i) => {
+        const last = i === parts.length - 1;
+        Speech.speak(p, {
+          language: "tr-TR",
+          pitch,
+          rate,
+          onDone: last ? () => res() : undefined,
+          onStopped: () => res(),
+          onError: () => res(),
+        });
+      });
     });
 
   // Konuşma: normalde telefonun Türkçe sesi; video kaydı sırasında ses videoya da girsin diye sahnede çalınır
@@ -123,12 +153,11 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
     const pitch = o.pitch ?? 1.1;
     if (recRef.current) {
       const audio = settings.aiConsent ? await fetchVoice(text, o.narrator ? "Kore" : pitch > 1.35 ? "Leda" : "Puck") : null;
-      if (audio) return stageAudio({ type: "playAudio", data: audio, rate: o.narrator ? 1 : Math.max(0.95, Math.min(1.25, pitch * 0.85)), id: o.id });
-      return stageAudio({ type: "babble", text, pitch, id: o.id });
+      if (audio && (await stageAudio({ type: "playAudio", data: audio, rate: o.narrator ? 1 : Math.max(0.95, Math.min(1.25, pitch * 0.85)), id: o.id }))) return;
+      await stageAudio({ type: "babble", text, pitch, id: o.id });
+      return;
     }
-    return new Promise<void>((res) => {
-      Speech.speak(text, { language: "tr-TR", pitch: o.narrator ? 1.0 : pitch, rate: o.narrator ? 0.92 : 1.0, onDone: () => res(), onStopped: () => res(), onError: () => res() });
-    });
+    return deviceSay(text, o.narrator ? 1.0 : pitch, o.narrator ? 0.9 : 1.0);
   };
 
   const speak = (c: Character, text?: string) => {
@@ -190,7 +219,7 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
         const r = tokens.current.get(m.token);
         if (r) {
           tokens.current.delete(m.token);
-          r();
+          r(!m.failed);
         }
         break;
       }
@@ -295,41 +324,81 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
     });
   };
 
+  // Masal: her sahnede uzun anlatım + karakterlerin kendi replikleri.
+  // Yapay zekâ açıksa sesler sunucudan (doğal Türkçe ses) önceden indirilir; olmazsa telefonun sesi.
   const runStory = async () => {
     const cast = castRef.current;
     if (!cast.length) return;
     const run = ++storyRun.current;
+    const alive = () => run === storyRun.current;
     setStory({ title: "", text: "Masal yazılıyor… ✍️", loading: true });
     const st = (settings.aiConsent ? await fetchStory(cast) : null) ?? offlineStory(cast);
-    if (run !== storyRun.current) return;
+    if (!alive()) return;
+    type Seg = { beat: number; text: string; who?: Character };
+    const segs: Seg[] = [{ beat: -1, text: st.title }];
+    st.beats.forEach((b, i) => {
+      segs.push({ beat: i, text: b.narration || b.text });
+      (b.dialogue ?? []).forEach((d) => cast[d.who] && d.line && segs.push({ beat: i, text: d.line, who: cast[d.who] }));
+    });
+    const useAI = settings.aiConsent;
+    const audio: (Promise<string | null> | undefined)[] = [];
+    let fails = 0;
+    const want = (i: number) => {
+      if (!useAI || fails >= 3 || i >= segs.length || audio[i]) return;
+      const sg = segs[i];
+      audio[i] = fetchVoice(speakable(sg.text), sg.who ? charVoice(sg.who.pitch) : "Kore").catch(() => null);
+    };
+    want(0);
+    want(1);
     send({ type: "story", on: true });
-    setStory({ title: st.title, text: st.title });
-    await voice(st.title, { narrator: true });
-    for (const b of st.beats) {
-      if (run !== storyRun.current) return;
-      if (b.scene) {
-        send({ type: "scene", name: b.scene });
-        setScene(b.scene);
+    setStory({ title: st.title, text: "Masal hazırlanıyor…", loading: true });
+    let beat = -2;
+    for (let i = 0; i < segs.length; i++) {
+      if (!alive()) return;
+      want(i + 1);
+      want(i + 2);
+      const sg = segs[i];
+      if (sg.beat !== beat) {
+        beat = sg.beat;
+        const b = st.beats[beat];
+        if (b) {
+          if (b.scene) {
+            send({ type: "scene", name: b.scene });
+            setScene(b.scene);
+          }
+          b.actions.forEach((a, k) => {
+            const c = cast[a.who];
+            if (c) setTimeout(() => alive() && send({ type: "action", id: c.id, action: a.action }), 500 + k * 400);
+          });
+          setStory({ title: st.title, text: b.narration || b.text });
+        } else setStory({ title: st.title, text: st.title });
       }
-      setStory({ title: st.title, text: b.text });
-      b.actions.forEach((a, i) => {
-        const c = cast[a.who];
-        if (c) setTimeout(() => send({ type: "action", id: c.id, action: a.action }), 300 + i * 250);
-      });
-      await voice(b.text, { narrator: true });
-      await wait(700);
+      const clip = audio[i] ? await audio[i] : null;
+      if (!alive()) return;
+      if (sg.who) send({ type: "say", id: sg.who.id, text: sg.text, ms: 1600 + sg.text.length * 80 });
+      let ok = false;
+      if (clip) {
+        const rate = sg.who ? Math.max(0.95, Math.min(1.2, sg.who.pitch * 0.85)) : 1;
+        ok = await stageAudio({ type: "playAudio", data: clip, rate, id: sg.who?.id });
+      } else if (useAI && audio[i]) fails++;
+      if (!ok && alive()) {
+        if (recRef.current) await stageAudio({ type: "babble", text: sg.text, pitch: sg.who?.pitch ?? 1.0, id: sg.who?.id });
+        else await deviceSay(sg.text, sg.who ? sg.who.pitch : 1.0, sg.who ? 1.0 : 0.9);
+      }
+      await wait(sg.who ? 300 : 600);
     }
-    if (run !== storyRun.current) return;
+    if (!alive()) return;
     send({ type: "story", on: false });
     setStory({ title: st.title, text: "Bitti! 🌙" });
     setTimeout(() => {
-      if (run === storyRun.current) setStory(null);
+      if (alive()) setStory(null);
     }, 2500);
   };
 
   const stopStory = () => {
     storyRun.current++;
     Speech.stop();
+    send({ type: "stopAudio" });
     send({ type: "story", on: false });
     setStory(null);
   };
@@ -486,6 +555,8 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
             <Btn e="🌀" t="Dön" onPress={() => act("spin")} />
             <Btn e="💬" t="Konuş" onPress={() => focus() && speak(focus())} />
             <Btn e="👋" t="Selam" onPress={() => act("wave")} />
+            <Btn e="🤸" t="Takla" onPress={() => act("flip")} />
+            <Btn e="😆" t="Gül" onPress={() => act("giggle")} />
             <Btn e="😴" t="Uyu" onPress={() => act("sleep")} />
             <Btn e="➕" t="Büyüt" onPress={() => send({ type: "scale", f: 1.15 })} />
             <Btn e="➖" t="Küçült" onPress={() => send({ type: "scale", f: 0.87 })} />

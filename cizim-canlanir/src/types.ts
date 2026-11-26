@@ -27,4 +27,5 @@ export type Settings = {
 // Sahneye giden karakter tanımı (çizim PNG'si data URL olarak)
 export type StageChar = { id: string; png: string; walkStyle: WalkStyle; parts: Character["parts"]; acc?: string[]; scale?: number };
 
-export type Story = { title: string; beats: { scene: string; text: string; actions: { who: number; action: string }[] }[] };
+export type StoryBeat = { scene: string; text: string; narration?: string; dialogue?: { who: number; line: string }[]; actions: { who: number; action: string }[] };
+export type Story = { title: string; beats: StoryBeat[] };

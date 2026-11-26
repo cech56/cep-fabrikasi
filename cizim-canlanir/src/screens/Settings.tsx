@@ -76,7 +76,7 @@ export function Settings({ settings, chars, count, onChange, onDeleteAll, onBack
       >
         <Text style={{ color: C.pink, fontWeight: "800" }}>Tüm karakterleri sil</Text>
       </Pressable>
-      <Text style={s.ver}>Sürüm 0.3 · deneme</Text>
+      <Text style={s.ver}>Sürüm 0.4 · deneme</Text>
     </ScrollView>
   );
 }

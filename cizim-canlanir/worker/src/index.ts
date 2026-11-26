@@ -115,13 +115,17 @@ async function geminiJson(env: Env, system: string, user: string, schema: unknow
   return JSON.parse((data?.candidates?.[0]?.content?.parts ?? []).filter((p: any) => !p.thought && p.text).map((p: any) => p.text).join(""));
 }
 
-const STORY_SYSTEM = `Sen 3-8 yaş çocuklar için masal yazan, sıcak ve komik bir masalcısın. Masalın kahramanları çocuğun kendi çizdiği karakterler.
+const SCENES = ["sinif", "park", "sahil", "uzay", "kar", "masa", "ciftlik", "sato", "denizalti", "parti", "kamp", "dinozor"];
+const ACTIONS = ["walk", "jump", "dance", "spin", "wave", "sleep", "flip", "giggle"];
+const STORY_SYSTEM = `Sen 3-8 yaş çocuklar için masal yazan, sıcak, komik ve yaratıcı bir masalcısın. Masalın kahramanları çocuğun kendi çizdiği karakterler.
 Kurallar:
-- Türkçe, çok basit cümleler. Toplam 6-8 sahne (beat). Her beat'in "text"i en fazla 30 kelime.
-- Mutlu son, dostluk, cesaret, paylaşma gibi güzel bir mesaj. Korku, şiddet, ölüm, kötü söz, marka, gerçek kişi yok.
-- Her beat bir "scene" seçer: sinif, park, sahil, uzay, kar, masa. Masal boyunca en az 3 farklı yerde geçsin.
-- Her beat'te karakterler "actions" ile bir şey yapar: who = karakterin sıra numarası (0'dan başlar), action = walk, jump, dance, spin, wave, sleep.
-- "title" kısa ve sevimli olsun. Son beat "Ve hepsi mutlu mesut yaşadı" gibi tatlı bir kapanış olsun.`;
+- Türkçe, basit ama canlı ve renkli cümleler. Toplam 8-10 sahne (beat). Masalın başı, ortası (küçük bir sorun ya da macera) ve tatlı bir sonu olsun.
+- Her beat'te "narration": anlatıcının sözleri, 2-4 cümle (en fazla 55 kelime). Ses, koku, renk gibi küçük ayrıntılar kat; sadece "oraya gittiler" deme, orada ne olduğunu anlat.
+- Her beat'te "dialogue": karakterlerin kendi ağızlarından 1-2 kısa replik (who = karakterin sıra numarası, line en fazla 12 kelime). Replikler eğlenceli ve karaktere özgü olsun. Repliği anlatıma tekrar yazma.
+- Her beat bir "scene" seçer: sinif (okul sınıfı), park, sahil, uzay, kar (karlı orman), masa (çocuğun masası), ciftlik, sato (prenses şatosu), denizalti (deniz altı), parti (doğum günü partisi), kamp (gece kamp ateşi), dinozor (dinozor vadisi). Masal boyunca en az 4 farklı yerde geçsin ve yer değiştiğinde nasıl gittiklerini anlat (rüzgâr, sihirli kapı, roket, balon...).
+- Her beat'te karakterler "actions" ile bir şey yapar: who = sıra numarası, action = walk, jump, dance, spin, wave, sleep, flip (takla), giggle (gülmek).
+- Mutlu son, dostluk, cesaret, paylaşma gibi güzel bir mesaj. Korku, şiddet, ölüm, kötü söz, marka, gerçek kişi yok. Emoji kullanma.
+- "title" kısa ve sevimli olsun. Son beat tatlı bir kapanış olsun.`;
 const STORY_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -131,26 +135,40 @@ const STORY_SCHEMA = {
       items: {
         type: "OBJECT",
         properties: {
-          scene: { type: "STRING", enum: ["sinif", "park", "sahil", "uzay", "kar", "masa"] },
-          text: { type: "STRING" },
-          actions: { type: "ARRAY", items: { type: "OBJECT", properties: { who: { type: "INTEGER" }, action: { type: "STRING", enum: ["walk", "jump", "dance", "spin", "wave", "sleep"] } }, required: ["who", "action"] } },
+          scene: { type: "STRING", enum: SCENES },
+          narration: { type: "STRING" },
+          dialogue: { type: "ARRAY", items: { type: "OBJECT", properties: { who: { type: "INTEGER" }, line: { type: "STRING" } }, required: ["who", "line"] } },
+          actions: { type: "ARRAY", items: { type: "OBJECT", properties: { who: { type: "INTEGER" }, action: { type: "STRING", enum: ACTIONS } }, required: ["who", "action"] } },
         },
-        required: ["scene", "text", "actions"],
+        required: ["scene", "narration", "dialogue", "actions"],
       },
     },
   },
   required: ["title", "beats"],
 };
+const THEMES = [
+  "kaybolan bir yavru kediyi bulmak", "sihirli bir hazine haritası", "arkadaşına sürpriz doğum günü partisi", "uzayda yalnız kalmış küçük bir yıldız",
+  "kayıp bir dinozor yumurtası", "deniz altında şarkı söyleyen bir balık", "şatoda kaybolan taç", "kamp ateşi başında gökyüzündeki takımyıldızlar",
+  "çiftlikte kaçan tavuklar", "karlı ormanda üşüyen bir kardan adam", "okulda yapılan sihirli resim", "rüzgârda uçup giden balon",
+];
 
 async function story(env: Env, chars: { name: string; kind: string }[], theme: string) {
   const list = chars.map((c, i) => `${i}: ${c.name}${c.kind ? ` (${c.kind})` : ""}`).join("\n");
-  const d = await geminiJson(env, STORY_SYSTEM, `Karakterler:\n${list}\n${theme ? `Konu isteği: ${theme}\n` : ""}Bir masal yaz.`, STORY_SCHEMA);
-  const beats = (Array.isArray(d.beats) ? d.beats : []).slice(0, 10).map((b: any) => ({
-    scene: b.scene,
-    text: clean(b.text, 260),
-    actions: (Array.isArray(b.actions) ? b.actions : []).filter((a: any) => Number.isInteger(a?.who) && a.who >= 0 && a.who < chars.length).slice(0, 6),
-  }));
-  if (beats.length < 3 || beats.some((b: any) => !b.text || BAD.test(b.text))) throw new Error("masal uygun değil");
+  const topic = theme || THEMES[Math.floor(Math.random() * THEMES.length)];
+  const d = await geminiJson(env, STORY_SYSTEM, `Karakterler:\n${list}\nKonu: ${topic}\nBir masal yaz.`, STORY_SCHEMA);
+  const okWho = (a: any) => Number.isInteger(a?.who) && a.who >= 0 && a.who < chars.length;
+  const beats = (Array.isArray(d.beats) ? d.beats : []).slice(0, 12).map((b: any) => {
+    const narration = clean(b.narration ?? b.text, 400);
+    return {
+      scene: SCENES.includes(b.scene) ? b.scene : "masa",
+      text: narration,
+      narration,
+      dialogue: (Array.isArray(b.dialogue) ? b.dialogue : []).filter(okWho).map((x: any) => ({ who: x.who, line: clean(x.line, 120) })).filter((x: any) => x.line).slice(0, 3),
+      actions: (Array.isArray(b.actions) ? b.actions : []).filter(okWho).filter((a: any) => ACTIONS.includes(a.action)).slice(0, 6),
+    };
+  });
+  const all = beats.map((b: any) => b.narration + " " + b.dialogue.map((x: any) => x.line).join(" ")).join(" ");
+  if (beats.length < 4 || beats.some((b: any) => !b.narration) || BAD.test(all)) throw new Error("masal uygun değil");
   return { title: clean(d.title, 60) || "Bir Masal", beats };
 }
 
@@ -162,6 +180,10 @@ async function pickTtsModel(env: Env): Promise<string | null> {
   const d: any = await res.json();
   const names: string[] = (d.models ?? []).map((m: any) => String(m.name).replace(/^models\//, "")).filter((n: string) => n.includes("tts"));
   return names.find((n) => n.includes("flash")) ?? names[0] ?? null;
+}
+// Seslendirmeyi bozan emoji ve işaretleri temizle
+function speakable(t: string) {
+  return t.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "").replace(/[*_#~`<>\[\]{}|\\^]/g, "").replace(/[“”«»]/g, '"').replace(/\s+/g, " ").trim();
 }
 function wav(pcm: Uint8Array, rate = 24000) {
   const h = new DataView(new ArrayBuffer(44));
@@ -179,7 +201,7 @@ async function tts(env: Env, text: string, voice: string): Promise<string> {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `Neşeli, sıcak ve çocuklara masal anlatır gibi söyle: ${text}` }] }],
+        contents: [{ parts: [{ text: `Bir çocuğa masal okur gibi neşeli, sıcak ve anlaşılır bir sesle, Türkçe oku:\n${speakable(text)}` }] }],
         generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } },
       }),
     });
@@ -249,11 +271,11 @@ export default {
     }
     if (url.pathname === "/api/tts" && req.method === "POST") {
       const body: any = await req.json().catch(() => null);
-      const text = clean(body?.text, 300);
+      const text = clean(body?.text, 500);
       if (!text || BAD.test(text)) return json({ error: "metin yok" }, 400);
       const voice = ["Leda", "Puck", "Kore", "Aoede", "Zephyr", "Fenrir"].includes(body?.voice) ? body.voice : "Leda";
       const device = String(body?.deviceId ?? "").slice(0, 64) || "anon";
-      if (limited(env, "tts:" + device, 80)) return json({ error: "sınır" }, 429);
+      if (limited(env, "tts:" + device, 250)) return json({ error: "sınır" }, 429);
       try {
         return json({ audio: await tts(env, text, voice), mime: "audio/wav" });
       } catch (e: any) {

@@ -2,7 +2,9 @@
 // fotoğraftan çizimi keser (arka planı siler) ve videoyu kaydeder.
 // Not: Bu dosyadaki JS, şablon dizesi içinde durduğu için içinde ters tırnak ve "dolar-süslü parantez" kullanılmaz.
 
-export const STAGE_HTML = String.raw`<!doctype html>
+import { MP4_MUXER_JS } from "./mp4muxer";
+
+const RAW = String.raw`<!doctype html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -14,6 +16,7 @@ video{display:none}
 <body>
 <video id="cam" playsinline muted autoplay></video>
 <canvas id="cv"></canvas>
+<!--MUXER-->
 <script>
 (function(){
 var cv = document.getElementById('cv');
@@ -33,6 +36,7 @@ var tilt = { b0: null, g0: null, ox: 0, oy: 0, tx: 0, ty: 0 };
 var drag = null;
 var scene = 'camera';
 var watermark = 'Çizim Canlanır';
+var sceneFadeT = -1e9;
 
 function post(o){ try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){} }
 function rnd(a,b){ return a + Math.random()*(b-a); }
@@ -42,7 +46,7 @@ function now(){ return performance.now(); }
 
 function resize(){
   W = window.innerWidth; H = window.innerHeight;
-  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  cv.width = Math.round(W*DPR/2)*2; cv.height = Math.round(H*DPR/2)*2; // H.264 için çift sayı
 }
 window.addEventListener('resize', resize);
 resize();
@@ -53,6 +57,7 @@ function ensureAudio(){
   try {
     audio = new (window.AudioContext || window.webkitAudioContext)();
     audioDest = audio.createMediaStreamDestination();
+    try { audioDest.channelCount = 1; audioDest.channelCountMode = 'explicit'; } catch(e){}
   } catch(e){ audio = null; }
 }
 function tone(type, f0, f1, dur, vol, delay){
@@ -95,8 +100,8 @@ window.addEventListener('deviceorientation', function(e){
   if (e.beta == null || e.gamma == null) return;
   if (tilt.b0 == null) { tilt.b0 = e.beta; tilt.g0 = e.gamma; }
   var k = W / 55;
-  tilt.tx = clamp(-(e.gamma - tilt.g0) * k, -W*0.3, W*0.3);
-  tilt.ty = clamp(-(e.beta - tilt.b0) * k, -H*0.22, H*0.22);
+  tilt.tx = clamp(-(e.gamma - tilt.g0) * k, -W*0.14, W*0.14);
+  tilt.ty = clamp(-(e.beta - tilt.b0) * k, -H*0.1, H*0.1);
   // yavaşça yeni duruşa alış (telefon uzun süre farklı tutulursa sahne ortalanır)
   tilt.b0 += (e.beta - tilt.b0) * 0.012;
   tilt.g0 += (e.gamma - tilt.g0) * 0.012;
@@ -367,7 +372,7 @@ function Char(def, img){
   bx.globalCompositeOperation = 'source-over';
 
   var y = rnd(floorTop()+ (floorBottom()-floorTop())*0.45, floorBottom()-20);
-  this.x = W/2 + rnd(-W*0.2, W*0.2); this.y = y; this.z = 0; this.vz = 0;
+  this.x = W/2 + rnd(-W*0.12, W*0.12); this.y = y; this.z = 0; this.vz = 0;
   this.face = 1; this.faceVis = 1;
   this.scale = def.scale || 1;
   this.state = 'idle'; this.stateT = now(); this.nextThink = now() + rnd(1500, 3500);
@@ -427,29 +432,43 @@ Char.prototype.height = function(){
   return H*0.3 * depthScale(this.y) * this.scale;
 };
 Char.prototype.setState = function(s){ this.state = s; this.stateT = now(); };
+// Karakter ekranın ortasında kalsın: genişliğinin yarısı kadar kenardan uzak dursun
+Char.prototype.xRange = function(y){
+  var h = H*0.3*depthScale(y == null ? this.y : y)*this.scale, hw = h*this.img.width/this.img.height/2;
+  var lo = Math.max(W*0.18, hw + W*0.05), hi = Math.min(W*0.82, W - hw - W*0.05);
+  if (lo > hi) { lo = hi = W/2; }
+  return [lo, hi];
+};
+Char.prototype.clampX = function(x, y){ var r = this.xRange(y); return clamp(x, r[0], r[1]); };
+function emote(c, txt){ var h = c.height(); particles.push({ kind:'emo', txt: txt, x: c.x + h*0.25, y: c.y - c.z - h*1.02, t: now(), life: 1500, s: Math.max(18, h*0.16) }); }
 Char.prototype.walkTo = function(x, y){
-  this.target = { x: clamp(x, W*0.08, W*0.92), y: clamp(y, floorTop()+10, floorBottom()) };
+  var ty = clamp(y, floorTop()+10, floorBottom());
+  this.target = { x: this.clampX(x, ty), y: ty };
   this.sleep = false; this.setState('walk');
 };
 Char.prototype.think = function(t){
   if (this.picked || this.birth || game || this.story) return;
   if (t < this.nextThink) return;
-  this.nextThink = t + rnd(2500, 6000);
+  this.nextThink = t + rnd(1800, 4200);
   if (this.sleep || this.state !== 'idle') return;
   var r = Math.random();
   var friend = null, best = 1e9, self = this;
-  chars.forEach(function(o){ if (o !== self) { var dd = Math.abs(o.x - self.x) + Math.abs(o.y - self.y); if (dd < best) { best = dd; friend = o; } } });
-  if (friend && r < 0.35) {
-    // arkadaşına doğru git ve el salla
+  chars.forEach(function(o){ if (o !== self && !o.hidden) { var dd = Math.abs(o.x - self.x) + Math.abs(o.y - self.y); if (dd < best) { best = dd; friend = o; } } });
+  // ortadan uzaklaştıysa geri dön
+  if (Math.abs(this.x - W/2) > W*0.22 && r < 0.6) { this.walkTo(W/2 + rnd(-W*0.1, W*0.1), this.y + rnd(-H*0.05, H*0.05)); return; }
+  var acts = ['look','look','stretch','hop','wiggle','giggle','wave','spin','flip','sit','shake','wander','wander','wander'];
+  if (friend) acts.push('friend','friend','friend');
+  var a = acts[Math.floor(Math.random()*acts.length)];
+  if (a === 'friend') {
     var side = friend.x > this.x ? -1 : 1;
     this.walkTo(friend.x + side * friend.height()*0.7, friend.y + rnd(-10, 10));
     this.meet = friend;
-  } else if (r < 0.75) {
-    this.walkTo(this.x + rnd(-W*0.35, W*0.35), this.y + rnd(-H*0.12, H*0.12));
-  } else if (r < 0.88) {
-    this.action('jump');
+  } else if (a === 'wander') {
+    this.walkTo(W/2 + rnd(-W*0.18, W*0.18), this.y + rnd(-H*0.08, H*0.08));
+  } else if (a === 'hop') {
+    this.jumps = 2; this.vz = this.height()*0.05; sfx.boing(); this.setState('jump');
   } else {
-    this.action('wave');
+    this.action(a);
   }
 };
 Char.prototype.action = function(a){
@@ -457,12 +476,19 @@ Char.prototype.action = function(a){
   if (a === 'jump') { this.jumps = 3; if (this.z <= 0.5) { this.vz = this.height()*0.075; sfx.boing(); } this.setState('jump'); }
   else if (a === 'dance') { this.setState('dance'); this.lastBeat = 0; this.danceX = this.x; }
   else if (a === 'spin') { this.setState('spin'); sfx.pop(); }
-  else if (a === 'wave') { this.setState('wave'); }
+  else if (a === 'wave') { this.setState('wave'); emote(this, '👋'); }
+  else if (a === 'flip') { this.setState('flip'); this.vz = this.height()*0.09; sfx.boing(); emote(this, '🤸'); }
+  else if (a === 'look') { this.setState('look'); emote(this, Math.random() < 0.5 ? '❓' : '👀'); }
+  else if (a === 'stretch') { this.setState('stretch'); emote(this, '🥱'); }
+  else if (a === 'wiggle') { this.setState('wiggle'); emote(this, '🎵'); }
+  else if (a === 'giggle') { this.setState('giggle'); emote(this, Math.random() < 0.5 ? '😆' : '💖'); sfx.pop(); }
+  else if (a === 'sit') { this.setState('sit'); emote(this, '😌'); }
+  else if (a === 'shake') { this.setState('shake'); emote(this, '❗'); }
   else if (a === 'sleep') { this.sleep = true; this.setState('idle'); sfx.snore(); }
   else if (a === 'walk') {
     // uzun yürüyüş: birkaç durak
     this.path = [];
-    for (var k = 0; k < 3; k++) this.path.push({ x: rnd(W*0.12, W*0.88), y: rnd(floorTop() + (floorBottom()-floorTop())*0.25, floorBottom()) });
+    for (var k = 0; k < 3; k++) { var py0 = rnd(floorTop() + (floorBottom()-floorTop())*0.3, floorBottom()); this.path.push({ x: this.clampX(W/2 + (k%2 ? 1 : -1)*rnd(W*0.08, W*0.3), py0), y: py0 }); }
     var f = this.path.shift(); this.walkTo(f.x, f.y);
   }
 };
@@ -475,7 +501,7 @@ Char.prototype.update = function(t, dt){
     var speed = hgt * (this.style === 'roll' ? 1.4 : this.style === 'fly' ? 1.1 : this.style === 'slither' ? 0.5 : 0.8) * this.speedMul;
     if (Math.abs(dx) > 4) this.face = dx > 0 ? 1 : -1;
     if (dist < 6 && this.path && this.path.length) {
-      var nx = this.path.shift(); this.target = { x: nx.x, y: nx.y };
+      var nx = this.path.shift(); this.target = { x: this.clampX(nx.x, nx.y), y: nx.y };
     } else if (dist < 6) {
       this.target = null; this.setState('idle');
       if (this.meet) { this.face = this.meet.x > this.x ? 1 : -1; this.setState('wave'); this.meet.face = -this.face; this.meet.setState('wave'); this.meet = null; }
@@ -493,10 +519,15 @@ Char.prototype.update = function(t, dt){
   if (this.state === 'dance') {
     // müzik ritmi ve sağa sola kayma
     if (t - (this.lastBeat||0) > 760) { this.lastBeat = t; sfx.dance(); if (Math.random() < 0.3) burst(this.x, this.y - hgt*0.9, 4, 2); }
-    this.x = clamp(this.danceX + Math.sin(st*2.2)*hgt*0.35, W*0.08, W*0.92);
+    this.x = this.clampX(this.danceX + Math.sin(st*2.2)*hgt*0.25);
     this.face = Math.cos(st*2.2) > 0 ? 1 : -1;
   }
-  if ((this.state === 'dance' && st > 8) || (this.state === 'spin' && st > 2.4) || (this.state === 'wave' && st > 4)) this.setState('idle');
+  if (this.state === 'look') this.face = Math.sin(st*3.2) > 0 ? 1 : -1;
+  if (this.state === 'flip' && st > 0.2 && this.z <= 0.5) { this.squash = t; this.setState('idle'); }
+  var DUR = { dance: 8, spin: 2.4, wave: 4, look: 2.6, stretch: 2.2, wiggle: 3, giggle: 2, sit: 3, shake: 1.2, flip: 3 };
+  if (DUR[this.state] && st > DUR[this.state]) this.setState('idle');
+  // kenara kaçmasın (sürüklenirken serbest)
+  if (!this.picked && !game) this.x += (this.clampX(this.x) - this.x) * Math.min(1, dt*4);
   // yerçekimi
   if (!this.picked) {
     var g = hgt * 0.42 * 60;
@@ -517,7 +548,10 @@ Char.prototype.compose = function(t){
   var swing = 0, armA = 0, wobA = 0.012, wobF = 2;
   if (walking) { swing = Math.sin(s*10) * 0.45; wobA = 0.025; wobF = 10; }
   if (dancing) { swing = Math.sin(s*12) * 0.5; armA = Math.sin(s*12) * 0.9; wobA = 0.07; wobF = 6; }
-  if (this.state === 'wave') armA = Math.sin(s*14) * 0.7 - 0.5;
+  if (this.state === 'wave') armA = Math.sin(st*12) * 0.6 - 1.1;
+  if (this.state === 'wiggle' || this.state === 'giggle') { armA = Math.sin(s*14) * 0.6; swing = Math.sin(s*14) * 0.3; wobA = 0.05; wobF = 9; }
+  if (this.state === 'stretch') { var k0 = Math.sin(Math.min(1, st/2.2)*Math.PI); armA = -1.4*k0; }
+  if (this.state === 'shake') { wobA = 0.08; wobF = 30; }
   if (this.picked) { swing = Math.sin(s*16) * 0.35; armA = Math.sin(s*16) * 0.5; }
   if (this.style === 'fly') { armA = Math.sin(s*(walking?22:12)) * 0.6; }
   if (this.sleep) { wobA = 0.006; wobF = 1.2; }
@@ -580,6 +614,13 @@ Char.prototype.draw = function(t){
   if (this.state === 'dance') { rot = Math.sin(s*6)*0.25; lift += Math.abs(Math.sin(s*6))*h*0.1; }
   if (this.state === 'spin') { sx *= Math.cos(st/2.4*Math.PI*6); lift += Math.sin(Math.min(1, st/2.4)*Math.PI)*h*0.3; }
   if (this.sleep) { rot = -0.18; sy *= 0.96; }
+  if (this.state === 'wave') { rot = Math.sin(st*6)*0.1; }
+  if (this.state === 'flip') { rot = Math.min(1, st/0.45)*Math.PI*2*(this.face >= 0 ? 1 : -1); }
+  if (this.state === 'stretch') { var k1 = Math.sin(Math.min(1, st/2.2)*Math.PI); sy *= 1 + 0.14*k1; sx *= 1 - 0.06*k1; }
+  if (this.state === 'wiggle') { rot = Math.sin(st*9)*0.18; lift += Math.abs(Math.sin(st*9))*h*0.04; }
+  if (this.state === 'giggle') { rot = Math.sin(st*30)*0.06; sy *= 1 + Math.abs(Math.sin(st*15))*0.05; }
+  if (this.state === 'sit') { var k2 = Math.min(1, st/0.3, (3 - st)/0.3); sy *= 1 - 0.2*Math.max(0, k2); sx *= 1 + 0.06*Math.max(0, k2); }
+  if (this.state === 'shake') { rot = Math.sin(st*50)*0.05; }
   if (this.squash) { var q = (t - this.squash)/1000; if (q < 0.35) { var e = Math.sin(q/0.35*Math.PI)*0.18*(1-q/0.35); sy *= 1-e; sx *= 1+e; } else this.squash = 0; }
   if (this.vz > 0) { sy *= 1.06; sx *= 0.95; }
   if (this.speaking > t) { sy *= 1 + Math.abs(Math.sin(s*18))*0.04; }
@@ -603,8 +644,10 @@ Char.prototype.draw = function(t){
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.translate(px, py - lift);
+  var piv = this.state === 'flip' ? h*0.5 : 0; // takla gövdenin ortasından döner
+  ctx.translate(px, py - lift - piv);
   ctx.rotate(rot);
+  ctx.translate(0, piv);
   ctx.scale(sc*sx, sc*sy);
   var ox = -(m + img.width/2), oy = -(m + img.height);
   var ow = 4/sc; // beyaz kenar kalınlığı
@@ -624,6 +667,16 @@ Char.prototype.draw = function(t){
   ctx.drawImage(c, ox, oy);
   ctx.restore();
 
+  if (this.state === 'wave' && !this.birth) {
+    // kolu olsun olmasın: başın yanında sallanan bir el
+    var hs = Math.max(22, h*0.24), side = this.face >= 0 ? 1 : -1;
+    var bw = h*img.width/img.height;
+    var hx = px + side*(bw*0.42 + hs*0.25), hy = py - lift - h*0.82;
+    ctx.save(); ctx.translate(hx, hy + hs*0.4); ctx.rotate(Math.sin(st*12)*0.55);
+    ctx.font = Math.round(hs) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.scale(side, 1); ctx.fillText('👋', 0, 0);
+    ctx.restore();
+  }
   if (this.sleep && Math.random() < 0.02) particles.push({ kind:'z', x: px + h*0.2, y: py - h*1.05, t: t, life: 2000, s: h*0.12 });
 };
 function easeOutBack(x){ var c1 = 1.70158, c3 = c1 + 1; return 1 + c3*Math.pow(x-1,3) + c1*Math.pow(x-1,2); }
@@ -649,6 +702,9 @@ function drawParticles(t, dt){
     } else if (p.kind === 'print') {
       ctx.globalAlpha = 0.25*(1-k); ctx.fillStyle = '#ffffff';
       ctx.beginPath(); ctx.ellipse(p.x + tilt.ox, p.y + tilt.oy, p.s, p.s*0.45, 0, 0, Math.PI*2); ctx.fill();
+    } else if (p.kind === 'emo') {
+      ctx.globalAlpha = k < 0.75 ? 1 : (1-k)*4; ctx.font = Math.round(p.s*(k < 0.15 ? k/0.15 : 1)) + 'px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(p.txt, p.x + tilt.ox, p.y + tilt.oy - k*30);
     } else if (p.kind === 'z') {
       ctx.globalAlpha = 1-k; ctx.fillStyle = '#ffffff'; ctx.font = 'bold ' + Math.round(p.s) + 'px sans-serif';
       ctx.fillText('z', p.x + tilt.ox + Math.sin(k*6)*10, p.y + tilt.oy - k*60);
@@ -812,6 +868,153 @@ var SCENES = {
     // yağan kar
     ctx.fillStyle = 'rgba(255,255,255,0.95)';
     for (var f = 0; f < 70; f++) { var fx = (seeded(f)*W + Math.sin(t/1000 + f)*20) % W, fy = (seeded(f + 300)*H + t*0.04*(0.6 + seeded(f + 7))) % H; ctx.beginPath(); ctx.arc(fx, fy, 1.5 + seeded(f + 11)*2.5, 0, 7); ctx.fill(); }
+  }  ,
+  ciftlik: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, ft, [[0, '#7fd0ff'], [1, '#d8f1ff']]); ctx.fillRect(0, 0, W, ft);
+    sun(W*0.15, ft*0.2, m*0.055, t);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; for (var c = 0; c < 3; c++) cloud(((seeded(c+4)*W + t*0.01) % (W + 200)) - 100, ft*(0.15 + c*0.12), m*0.035);
+    ctx.fillStyle = '#9bd47f'; ctx.beginPath(); ctx.ellipse(W*0.5, ft + 10, W*0.8, ft*0.22, 0, Math.PI, 0); ctx.fill();
+    // ahır
+    var bx = W*0.62, bw = W*0.3, bh = ft*0.38, by = ft - bh + 4;
+    ctx.fillStyle = '#d64541'; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#8e2b2b'; ctx.beginPath(); ctx.moveTo(bx - 8, by); ctx.lineTo(bx + bw/2, by - bh*0.45); ctx.lineTo(bx + bw + 8, by); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(bx + bw*0.32, by + bh*0.35, bw*0.36, bh*0.65);
+    ctx.strokeStyle = '#d64541'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(bx + bw*0.32, by + bh*0.35); ctx.lineTo(bx + bw*0.68, by + bh); ctx.moveTo(bx + bw*0.68, by + bh*0.35); ctx.lineTo(bx + bw*0.32, by + bh); ctx.stroke();
+    // yel değirmeni
+    var wx = W*0.2, wy = ft - 2, wh = ft*0.4;
+    ctx.fillStyle = '#efe3c8'; ctx.beginPath(); ctx.moveTo(wx - wh*0.14, wy); ctx.lineTo(wx - wh*0.07, wy - wh); ctx.lineTo(wx + wh*0.07, wy - wh); ctx.lineTo(wx + wh*0.14, wy); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.translate(wx, wy - wh); ctx.rotate(t/1200); ctx.fillStyle = '#8a5a2b';
+    for (var b = 0; b < 4; b++) { ctx.rotate(Math.PI/2); ctx.fillRect(0, -wh*0.05, wh*0.5, wh*0.1); }
+    ctx.restore();
+    // çit ve çimen
+    ctx.fillStyle = grad(ft, H, [[0, '#8ccf62'], [1, '#5ea844']]); ctx.fillRect(0, ft, W, H - ft);
+    ctx.fillStyle = '#f4e3c1'; for (var f = 0; f < 12; f++) ctx.fillRect(f*W/11, ft - 16, 6, 26); ctx.fillRect(0, ft - 10, W, 5); ctx.fillRect(0, ft, W, 5);
+    // saman balyaları
+    [[0.1, 0.25], [0.88, 0.3]].forEach(function(p){ var hx = W*p[0], hy = ft + (H-ft)*p[1], hs = m*0.07; ctx.fillStyle = '#e8c35a'; ctx.fillRect(hx - hs, hy - hs, hs*2, hs*1.2); ctx.strokeStyle = '#b8902e'; ctx.lineWidth = 2; ctx.strokeRect(hx - hs, hy - hs, hs*2, hs*1.2); });
+    // tavuk
+    var cx = W*(0.5 + 0.35*Math.sin(t/3000)), cy = ft + 18;
+    ctx.font = Math.round(m*0.06) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.save(); ctx.translate(cx, cy); ctx.scale(Math.cos(t/3000) > 0 ? -1 : 1, 1); ctx.fillText('🐔', 0, 0); ctx.restore();
+  },
+  sato: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, ft, [[0, '#f7b6d2'], [0.6, '#ffd9ec'], [1, '#fff1d6']]); ctx.fillRect(0, 0, W, ft);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; cloud(((t*0.008) % (W + 200)) - 100, ft*0.15, m*0.03);
+    var cx = W/2, base = ft + 4, cw = W*0.6, ch = ft*0.45;
+    ctx.fillStyle = '#e9dcf5'; ctx.fillRect(cx - cw/2, base - ch, cw, ch);
+    // kuleler
+    [-1, 1].forEach(function(sd){
+      var tx = cx + sd*cw/2, tw = cw*0.2, th = ch*1.45;
+      ctx.fillStyle = '#d9c7ef'; ctx.fillRect(tx - tw/2, base - th, tw, th);
+      ctx.fillStyle = '#a78bfa'; ctx.beginPath(); ctx.moveTo(tx - tw*0.65, base - th); ctx.lineTo(tx, base - th - tw*1.2); ctx.lineTo(tx + tw*0.65, base - th); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff6b9a'; ctx.beginPath(); ctx.moveTo(tx, base - th - tw*1.2); ctx.lineTo(tx + tw*0.5, base - th - tw*1.05 + Math.sin(t/300)*3); ctx.lineTo(tx, base - th - tw*0.9); ctx.fill();
+      ctx.fillStyle = '#5b4a86'; ctx.beginPath(); ctx.arc(tx, base - th*0.7, tw*0.18, Math.PI, 0); ctx.fill(); ctx.fillRect(tx - tw*0.18, base - th*0.7, tw*0.36, tw*0.3);
+    });
+    // mazgallar
+    ctx.fillStyle = '#e9dcf5'; for (var k = 0; k < 7; k++) ctx.fillRect(cx - cw/2 + k*cw/6.5, base - ch - 12, cw/14, 14);
+    // kapı
+    ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.arc(cx, base - ch*0.35, cw*0.11, Math.PI, 0); ctx.fill(); ctx.fillRect(cx - cw*0.11, base - ch*0.35, cw*0.22, ch*0.35);
+    ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(cx + cw*0.06, base - ch*0.18, 3, 0, 7); ctx.fill();
+    // bahçe yolu
+    ctx.fillStyle = grad(ft, H, [[0, '#9fdc8a'], [1, '#6cb85a']]); ctx.fillRect(0, ft, W, H - ft);
+    ctx.fillStyle = '#f2dcb3'; ctx.beginPath(); ctx.moveTo(cx - cw*0.1, ft); ctx.lineTo(cx + cw*0.1, ft); ctx.lineTo(cx + W*0.35, H); ctx.lineTo(cx - W*0.35, H); ctx.closePath(); ctx.fill();
+    // ışıltılar
+    ctx.fillStyle = '#fff6b0'; for (var s2 = 0; s2 < 12; s2++) { ctx.globalAlpha = Math.abs(Math.sin(t/600 + s2)); star(seeded(s2+30)*W, seeded(s2+60)*ft*0.9, 4, 0); } ctx.globalAlpha = 1;
+  },
+  denizalti: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, H, [[0, '#4fc3e8'], [0.5, '#1d7fb8'], [1, '#0f4f80']]); ctx.fillRect(0, 0, W, H);
+    // ışık hüzmeleri
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (var r = 0; r < 4; r++) { var rx = W*(0.15 + r*0.25) + Math.sin(t/2000 + r)*20; ctx.beginPath(); ctx.moveTo(rx - 20, 0); ctx.lineTo(rx + 20, 0); ctx.lineTo(rx + 90, H); ctx.lineTo(rx - 10, H); ctx.closePath(); ctx.fill(); }
+    // kum
+    ctx.fillStyle = grad(ft, H, [[0, '#e6cf92'], [1, '#c9a865']]);
+    ctx.beginPath(); ctx.moveTo(0, ft + 14); for (var x = 0; x <= W; x += 20) ctx.lineTo(x, ft + 10 + Math.sin(x/60)*8); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+    // yosunlar
+    for (var w = 0; w < 8; w++) {
+      var wx = seeded(w + 5)*W, wh = m*(0.15 + seeded(w)*0.15);
+      ctx.strokeStyle = w % 2 ? '#2e9e5b' : '#46b86b'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(wx, ft + 12);
+      for (var k = 1; k <= 6; k++) ctx.lineTo(wx + Math.sin(t/700 + k*0.8 + w)*8, ft + 12 - wh*k/6);
+      ctx.stroke();
+    }
+    // mercan
+    [[0.08, '#ff7f7f'], [0.9, '#ffb36b']].forEach(function(p){ var cx = W*p[0], cy = ft + 16, cs = m*0.09; ctx.strokeStyle = p[1]; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - cs); ctx.moveTo(cx, cy - cs*0.5); ctx.lineTo(cx - cs*0.4, cy - cs*0.9); ctx.moveTo(cx, cy - cs*0.6); ctx.lineTo(cx + cs*0.4, cy - cs*1.1); ctx.stroke(); });
+    // balıklar
+    var fish = ['🐠', '🐟', '🐡', '🐙'];
+    ctx.font = Math.round(m*0.06) + 'px sans-serif'; ctx.textAlign = 'center';
+    for (var f = 0; f < 4; f++) { var dir = f % 2 ? 1 : -1, sp = 0.02 + f*0.006, fx = ((t*sp*dir + seeded(f)*W*3) % (W + 120) + W + 120) % (W + 120) - 60, fy = ft*(0.25 + f*0.17) + Math.sin(t/600 + f)*8;
+      ctx.save(); ctx.translate(fx, fy); ctx.scale(-dir, 1); ctx.fillText(fish[f], 0, 0); ctx.restore(); }
+    // kabarcıklar
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5;
+    for (var b = 0; b < 25; b++) { var bx = seeded(b + 100)*W + Math.sin(t/500 + b)*6, by = H - ((t*0.05*(0.5 + seeded(b + 9)) + seeded(b + 40)*H) % H); ctx.beginPath(); ctx.arc(bx, by, 2 + seeded(b)*4, 0, 7); ctx.stroke(); }
+  },
+  parti: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, ft, [[0, '#ffe08a'], [1, '#ffc7a0']]); ctx.fillRect(0, 0, W, ft);
+    // bayraklar
+    var cols = ['#ff4d5e', '#4ecdc4', '#a78bfa', '#ffd23f', '#7bd389'];
+    for (var row = 0; row < 2; row++) { var y0 = ft*(0.08 + row*0.14);
+      ctx.strokeStyle = '#7a5a3a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, y0); ctx.quadraticCurveTo(W/2, y0 + 30, W, y0); ctx.stroke();
+      for (var i = 0; i < 10; i++) { var px = (i + 0.5)*W/10, py = y0 + Math.sin((i + 0.5)/10*Math.PI)*15 + Math.sin(t/400 + i)*1.5; ctx.fillStyle = cols[(i + row) % 5]; ctx.beginPath(); ctx.moveTo(px - W/24, py); ctx.lineTo(px + W/24, py); ctx.lineTo(px, py + W/14); ctx.closePath(); ctx.fill(); } }
+    // balonlar
+    for (var b = 0; b < 6; b++) { var bx = W*(0.06 + b*0.18) + Math.sin(t/900 + b)*6, by = ft*(0.55 + seeded(b)*0.2) + Math.sin(t/700 + b)*5, br = m*0.045;
+      ctx.strokeStyle = 'rgba(80,80,80,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx, by + br*1.2); ctx.lineTo(bx + 4, ft); ctx.stroke();
+      ctx.fillStyle = cols[b % 5]; ctx.beginPath(); ctx.ellipse(bx, by, br, br*1.2, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(bx - br*0.35, by - br*0.4, br*0.2, br*0.3, -0.4, 0, 7); ctx.fill(); }
+    // zemin
+    ctx.fillStyle = grad(ft, H, [[0, '#f3b6c9'], [1, '#e48aa8']]); ctx.fillRect(0, ft, W, H - ft);
+    // pasta
+    var cx = W*0.85, cy = ft + (H-ft)*0.12, cs = m*0.08;
+    ctx.fillStyle = '#fff'; ctx.fillRect(cx - cs*1.2, cy - cs*0.1, cs*2.4, cs*0.15);
+    ctx.fillStyle = '#8b5a3c'; ctx.fillRect(cx - cs, cy - cs*0.9, cs*2, cs*0.8);
+    ctx.fillStyle = '#ffd1e0'; ctx.fillRect(cx - cs, cy - cs*0.95, cs*2, cs*0.2);
+    for (var c = -1; c <= 1; c++) { ctx.fillStyle = cols[c + 1]; ctx.fillRect(cx + c*cs*0.5 - 2, cy - cs*1.35, 4, cs*0.4); ctx.fillStyle = '#ffb000'; ctx.beginPath(); ctx.ellipse(cx + c*cs*0.5, cy - cs*1.42 + Math.sin(t/120 + c)*1, 3, 6, 0, 0, 7); ctx.fill(); }
+    // konfeti
+    for (var k = 0; k < 40; k++) { var kx = (seeded(k)*W + Math.sin(t/800 + k)*15) % W, ky = (seeded(k + 50)*H + t*0.03*(0.5 + seeded(k + 3))) % H;
+      ctx.save(); ctx.translate(kx, ky); ctx.rotate(t/300 + k); ctx.fillStyle = cols[k % 5]; ctx.fillRect(-3, -1.5, 6, 3); ctx.restore(); }
+  },
+  kamp: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, ft, [[0, '#0e1a3a'], [1, '#33406e']]); ctx.fillRect(0, 0, W, ft);
+    for (var i = 0; i < 50; i++) { ctx.globalAlpha = 0.4 + 0.6*Math.abs(Math.sin(t/1100 + i)); ctx.fillStyle = '#fff'; ctx.fillRect(seeded(i)*W, seeded(i + 99)*ft*0.8, 2, 2); } ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff7d6'; ctx.beginPath(); ctx.arc(W*0.8, ft*0.2, m*0.05, 0, 7); ctx.fill(); ctx.fillStyle = '#1b2a52'; ctx.beginPath(); ctx.arc(W*0.8 + m*0.02, ft*0.19, m*0.045, 0, 7); ctx.fill();
+    for (var k = 0; k < 8; k++) { ctx.save(); ctx.globalAlpha = 0.85; pine(W*(k/7) + seeded(k)*10, ft + 6, m*(0.22 + seeded(k + 3)*0.08), false); ctx.restore(); }
+    ctx.fillStyle = grad(ft, H, [[0, '#2f4a33'], [1, '#1f3322']]); ctx.fillRect(0, ft, W, H - ft);
+    // çadır
+    var tx = W*0.18, ty = ft + (H-ft)*0.12, ts = m*0.16;
+    ctx.fillStyle = '#ff9f1c'; ctx.beginPath(); ctx.moveTo(tx - ts, ty); ctx.lineTo(tx, ty - ts*1.1); ctx.lineTo(tx + ts, ty); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#7a3f00'; ctx.beginPath(); ctx.moveTo(tx - ts*0.25, ty); ctx.lineTo(tx, ty - ts*0.7); ctx.lineTo(tx + ts*0.25, ty); ctx.closePath(); ctx.fill();
+    // kamp ateşi + ışığı
+    var fx = W*0.8, fy = ft + (H-ft)*0.2, fs = m*0.06;
+    var g = ctx.createRadialGradient(fx, fy, 2, fx, fy, m*0.45); g.addColorStop(0, 'rgba(255,170,60,0.45)'); g.addColorStop(1, 'rgba(255,170,60,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#6b4226'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(fx - fs, fy + 4); ctx.lineTo(fx + fs, fy - 4); ctx.moveTo(fx - fs, fy - 4); ctx.lineTo(fx + fs, fy + 4); ctx.stroke();
+    for (var f = 0; f < 3; f++) { var fh = fs*(1.4 - f*0.35)*(1 + Math.sin(t/90 + f)*0.12); ctx.fillStyle = ['#ff5e1a', '#ffa41b', '#ffe066'][f];
+      ctx.beginPath(); ctx.moveTo(fx - fs*(0.7 - f*0.18), fy); ctx.quadraticCurveTo(fx - fs*0.3, fy - fh*0.6, fx + Math.sin(t/150)*4, fy - fh); ctx.quadraticCurveTo(fx + fs*0.3, fy - fh*0.6, fx + fs*(0.7 - f*0.18), fy); ctx.closePath(); ctx.fill(); }
+    // ateş böcekleri
+    ctx.fillStyle = '#e8ff7a'; for (var b = 0; b < 12; b++) { ctx.globalAlpha = Math.abs(Math.sin(t/400 + b*1.7)); ctx.beginPath(); ctx.arc(seeded(b + 10)*W + Math.sin(t/1500 + b)*20, ft*0.7 + seeded(b + 20)*(H - ft*0.7)*0.5 + Math.cos(t/1300 + b)*10, 2.2, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
+  },
+  dinozor: function(t){
+    var ft = floorTop(), m = Math.min(W, H);
+    ctx.fillStyle = grad(0, ft, [[0, '#ffcf8a'], [1, '#ffe9c2']]); ctx.fillRect(0, 0, W, ft);
+    // volkan
+    var vx = W*0.72, vb = ft + 4, vw = W*0.45, vh = ft*0.55;
+    ctx.fillStyle = '#7a5a4a'; ctx.beginPath(); ctx.moveTo(vx - vw/2, vb); ctx.lineTo(vx - vw*0.1, vb - vh); ctx.lineTo(vx + vw*0.1, vb - vh); ctx.lineTo(vx + vw/2, vb); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ff6b2b'; ctx.beginPath(); ctx.moveTo(vx - vw*0.1, vb - vh); ctx.lineTo(vx - vw*0.04, vb - vh*0.7); ctx.lineTo(vx + vw*0.02, vb - vh*0.85); ctx.lineTo(vx + vw*0.1, vb - vh); ctx.closePath(); ctx.fill();
+    for (var s2 = 0; s2 < 4; s2++) { var k = ((t/2500 + s2/4) % 1); ctx.fillStyle = 'rgba(120,110,110,' + (0.6*(1 - k)) + ')'; ctx.beginPath(); ctx.arc(vx + Math.sin(k*4 + s2)*15, vb - vh - k*ft*0.4, m*0.03*(1 + k*1.5), 0, 7); ctx.fill(); }
+    // uçan pterodaktil
+    var px = ((t*0.04) % (W + 200)) - 100, py = ft*0.25 + Math.sin(t/500)*10, wg = Math.sin(t/120)*m*0.03;
+    ctx.strokeStyle = '#5b3f6b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(px - m*0.05, py - wg); ctx.lineTo(px, py); ctx.lineTo(px + m*0.05, py - wg); ctx.stroke();
+    // dev yapraklar
+    ctx.fillStyle = grad(ft, H, [[0, '#a9cf6a'], [1, '#6f9e3c']]); ctx.fillRect(0, ft, W, H - ft);
+    for (var f = 0; f < 4; f++) { var lx = f < 2 ? W*(0.02 + f*0.1) : W*(0.86 + (f - 2)*0.1), ly = ft + 20;
+      ctx.save(); ctx.translate(lx, ly); ctx.fillStyle = f % 2 ? '#3f8f3a' : '#2f7a2f';
+      for (var l = 0; l < 5; l++) { ctx.save(); ctx.rotate(-Math.PI/2 + (l - 2)*0.45 + Math.sin(t/1200 + f)*0.04); ctx.beginPath(); ctx.ellipse(m*0.12, 0, m*0.13, m*0.035, 0, 0, 7); ctx.fill(); ctx.restore(); }
+      ctx.restore(); }
+    // dinozor ayak izleri ve yumurta
+    ctx.fillStyle = 'rgba(70,90,40,0.35)'; for (var p = 0; p < 6; p++) { var ex = W*(0.2 + p*0.12), ey = ft + (H-ft)*(0.55 + (p % 2)*0.08); ctx.beginPath(); ctx.ellipse(ex, ey, 9, 5, 0, 0, 7); ctx.fill(); }
+    var ex2 = W*0.12, ey2 = ft + (H-ft)*0.3; ctx.fillStyle = '#f5f0dc'; ctx.beginPath(); ctx.ellipse(ex2, ey2, m*0.035, m*0.045, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#7bd389'; [[-0.3, -0.2], [0.25, 0.1], [-0.1, 0.4]].forEach(function(d){ ctx.beginPath(); ctx.arc(ex2 + d[0]*m*0.035, ey2 + d[1]*m*0.045, 3, 0, 7); ctx.fill(); });
   }
 };
 
@@ -913,12 +1116,16 @@ function frame(){
   drawBubbles(t);
   drawScan(t);
   drawEdit(t);
+  // yer değişince yumuşak geçiş
+  var fk = (t - sceneFadeT)/700;
+  if (fk >= 0 && fk < 1) { ctx.save(); ctx.globalAlpha = 1 - fk; ctx.fillStyle = '#fff6e0'; ctx.fillRect(0, 0, W, H); ctx.restore(); }
   if (recorder) {
     ctx.save();
     ctx.font = '700 ' + Math.round(W/26) + 'px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
     ctx.fillText('✨ ' + watermark, 14, H - 18);
     ctx.restore();
+    if (recorder.wc) wcFrame(t);
     if (t - recT0 > recMax) stopRecording();
   }
   requestAnimationFrame(frame);
@@ -928,17 +1135,28 @@ requestAnimationFrame(frame);
 // ---------------- Ses çalma (sunucudan gelen seslendirme / karakter dili) ----------------
 function b64ToBuf(b64){ var bin = atob(b64), n = bin.length, u = new Uint8Array(n); for (var i=0;i<n;i++) u[i] = bin.charCodeAt(i); return u.buffer; }
 function setSpeaking(id, ms){ chars.forEach(function(c){ if (c.id === id) c.speaking = now() + ms; }); }
+var playing = [];
+function stopAudio(){ playing.forEach(function(p){ try { p.src.onended = null; p.src.stop(); } catch(e){} post({ type:'audioDone', token: p.token, failed: true }); }); playing = []; }
 function playAudio(m){
   ensureAudio();
-  if (!audio) { post({ type:'audioDone', token: m.token }); return; }
-  audio.decodeAudioData(b64ToBuf(m.data)).then(function(buf){
-    var src = audio.createBufferSource(); src.buffer = buf; src.playbackRate.value = m.rate || 1;
-    var g = audio.createGain(); g.gain.value = 1.0; src.connect(g); g.connect(audio.destination); if (audioDest) g.connect(audioDest);
-    var ms = buf.duration*1000/(m.rate || 1);
-    if (m.id) setSpeaking(m.id, ms);
-    src.onended = function(){ post({ type:'audioDone', token: m.token }); };
-    src.start();
-  }).catch(function(){ post({ type:'audioDone', token: m.token }); });
+  if (!audio) { post({ type:'audioDone', token: m.token, failed: true }); return; }
+  var done = false;
+  function fin(failed){ if (done) return; done = true; playing = playing.filter(function(p){ return p.token !== m.token; }); post({ type:'audioDone', token: m.token, failed: !!failed }); }
+  // Ses motoru uyanmazsa beklemeden telefonun sesine düş
+  var ready = audio.state === 'running' ? Promise.resolve() : Promise.race([audio.resume(), new Promise(function(r){ setTimeout(r, 1500); })]);
+  ready.then(function(){
+    if (audio.state !== 'running') { fin(true); return; }
+    return audio.decodeAudioData(b64ToBuf(m.data)).then(function(buf){
+      var src = audio.createBufferSource(); src.buffer = buf; src.playbackRate.value = m.rate || 1;
+      var g = audio.createGain(); g.gain.value = 1.0; src.connect(g); g.connect(audio.destination); if (audioDest) g.connect(audioDest);
+      var ms = buf.duration*1000/(m.rate || 1);
+      if (m.id) setSpeaking(m.id, ms);
+      src.onended = function(){ fin(false); };
+      playing.push({ src: src, token: m.token });
+      src.start();
+      setTimeout(function(){ fin(false); }, ms + 3000);
+    });
+  }).catch(function(){ fin(true); });
 }
 function babble(m){
   ensureAudio();
@@ -1107,38 +1325,202 @@ cv.addEventListener('pointerup', up);
 cv.addEventListener('pointercancel', function(){ down = null; });
 
 // ---------------- Kayıt ----------------
+// Öncelik: WebCodecs (H.264 + AAC) + mp4-muxer -> her telefonda / WhatsApp'ta açılan standart MP4.
+// Desteklenmezse MediaRecorder'a düşer.
+function sendVideo(blob, type){
+  var fr = new FileReader();
+  fr.onload = function(){
+    var s = String(fr.result); var b64 = s.slice(s.indexOf(',')+1);
+    var size = 400000, n = Math.max(1, Math.ceil(b64.length/size));
+    for (var i=0;i<n;i++) post({ type:'recChunk', i:i, n:n, mime: type.split(';')[0], data: b64.slice(i*size, (i+1)*size) });
+  };
+  fr.readAsDataURL(blob);
+}
 function pickMime(){
-  var list = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  var list = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
   for (var i=0;i<list.length;i++) if (window.MediaRecorder && MediaRecorder.isTypeSupported(list[i])) return list[i];
   return '';
 }
 function startRecording(maxMs){
   if (recorder) return;
   ensureAudio();
+  recMax = maxMs || 15000;
+  var pending = { pending: true, state: 'recording', stop: function(){ this.cancel = true; } };
+  recorder = pending; recT0 = now();
+  startWC().then(function(r){
+    if (pending.cancel) { if (r) { r.stop(); } recorder = null; return; }
+    if (r) { recorder = r; recT0 = now(); post({ type:'rec', started:true, mode:'mp4' }); }
+    else { recorder = null; startMR(); }
+  }).catch(function(){ recorder = null; startMR(); });
+}
+function startMR(){
   if (!window.MediaRecorder || !cv.captureStream) { post({ type:'rec', error:'unsupported' }); return; }
   var stream = cv.captureStream(30);
   if (audioDest) audioDest.stream.getAudioTracks().forEach(function(tr){ stream.addTrack(tr); });
   var mime = pickMime();
-  try { recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 3000000 } : undefined); }
-  catch(e){ recorder = null; post({ type:'rec', error: String(e) }); return; }
-  recChunks = []; recT0 = now(); recMax = maxMs || 15000;
-  recorder.ondataavailable = function(ev){ if (ev.data && ev.data.size) recChunks.push(ev.data); };
-  recorder.onstop = function(){
-    var type = (recorder && recorder.mimeType) || mime || 'video/webm';
-    recorder = null;
-    var blob = new Blob(recChunks, { type: type });
-    var fr = new FileReader();
-    fr.onload = function(){
-      var s = String(fr.result); var b64 = s.slice(s.indexOf(',')+1);
-      var size = 400000, n = Math.ceil(b64.length/size);
-      for (var i=0;i<n;i++) post({ type:'recChunk', i:i, n:n, mime: type.split(';')[0], data: b64.slice(i*size, (i+1)*size) });
-    };
-    fr.readAsDataURL(blob);
+  var mr;
+  try { mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 3000000 } : undefined); }
+  catch(e){ post({ type:'rec', error: String(e) }); return; }
+  recorder = mr;
+  recChunks = []; recT0 = now();
+  mr.ondataavailable = function(ev){ if (ev.data && ev.data.size) recChunks.push(ev.data); };
+  mr.onstop = function(){
+    var type = mr.mimeType || mime || 'video/webm';
+    if (recorder === mr) recorder = null;
+    sendVideo(new Blob(recChunks, { type: type }), type);
   };
-  recorder.start(500);
-  post({ type:'rec', started:true });
+  mr.start(500);
+  post({ type:'rec', started:true, mode:'mr' });
 }
-function stopRecording(){ if (recorder && recorder.state !== 'inactive') { recorder.stop(); post({ type:'rec', stopped:true }); } }
+function startWC(){
+  if (!window.VideoEncoder || !window.VideoFrame || !window.Mp4Muxer) return Promise.resolve(null);
+  var w = cv.width, h = cv.height;
+  var scale = Math.min(1, 1280 / Math.max(w, h));
+  var ow = Math.round(w*scale/2)*2, oh = Math.round(h*scale/2)*2;
+  var codecs = ['avc1.42002a', 'avc1.4d002a', 'avc1.640028', 'avc1.42001f'];
+  var vcfg = null;
+  function tryCodec(i){
+    if (i >= codecs.length) return Promise.resolve(null);
+    var c = { codec: codecs[i], width: ow, height: oh, bitrate: 3000000, framerate: 30, avc: { format: 'avc' } };
+    return VideoEncoder.isConfigSupported(c).then(function(r){ return r && r.supported ? c : tryCodec(i+1); }, function(){ return tryCodec(i+1); });
+  }
+  return tryCodec(0).then(function(c){
+    if (!c) return null;
+    vcfg = c;
+    return setupAudio().then(function(au){ return buildWC(vcfg, au, w, h); });
+  });
+}
+// Ses: WebAudio çıkışını (audioDest) okuyup AAC'ye çevir.
+function setupAudio(){
+  if (!audioDest || !window.AudioEncoder || !window.MediaStreamTrackProcessor) return Promise.resolve(null);
+  try {
+    var track = audioDest.stream.getAudioTracks()[0];
+    if (!track) return Promise.resolve(null);
+    var sr = audio.sampleRate;
+    // AAC (her yerde açılır) yoksa MP4 içinde Opus (Android 10+ oynatır)
+    var opts = [['mp4a.40.2','aac',1],['mp4a.40.2','aac',2],['opus','opus',1],['opus','opus',2]];
+    var cfg = null, mux = null;
+    function tryA(i){
+      if (i >= opts.length) return Promise.resolve(false);
+      var c = { codec: opts[i][0], sampleRate: sr, numberOfChannels: opts[i][2], bitrate: 96000 };
+      return AudioEncoder.isConfigSupported(c).then(function(r){
+        if (r && r.supported) { cfg = c; mux = opts[i][1]; return true; }
+        return tryA(i+1);
+      }, function(){ return tryA(i+1); });
+    }
+    return tryA(0).then(function(ok){
+      if (!ok) return null;
+      var proc = new MediaStreamTrackProcessor({ track: track.clone() });
+      return { cfg: cfg, mux: mux, reader: proc.readable.getReader() };
+    }).catch(function(){ return null; });
+  } catch(e){ return Promise.resolve(null); }
+}
+function buildWC(vcfg, au, srcW, srcH){
+  var muxOpts = {
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: 'avc', width: vcfg.width, height: vcfg.height, frameRate: 30 },
+    fastStart: 'in-memory',
+    firstTimestampBehavior: 'cross-track-offset'
+  };
+  if (au) muxOpts.audio = { codec: au.mux, sampleRate: au.cfg.sampleRate, numberOfChannels: au.cfg.numberOfChannels };
+  var muxer = new Mp4Muxer.Muxer(muxOpts);
+  var failed = false;
+  var venc = new VideoEncoder({
+    output: function(chunk, meta){ try { muxer.addVideoChunk(chunk, meta); } catch(e){ failed = true; } },
+    error: function(){ failed = true; }
+  });
+  venc.configure(vcfg);
+  var small = (vcfg.width !== srcW) ? document.createElement('canvas') : null;
+  if (small) { small.width = vcfg.width; small.height = vcfg.height; }
+  var sctx = small ? small.getContext('2d') : null;
+  var aenc = null, reading = !!au, aDone = Promise.resolve(), t0 = now();
+  if (au) {
+    aenc = new AudioEncoder({
+      output: function(chunk, meta){ try { muxer.addAudioChunk(chunk, meta); } catch(e){} },
+      error: function(){ aenc = null; }
+    });
+    aenc.configure(au.cfg);
+    var aNext = -1, nCh = au.cfg.numberOfChannels;
+    aDone = (function pump(){
+      return au.reader.read().then(function(res){
+        if (res.done || !reading) { if (res.value) res.value.close(); return; }
+        var d = res.value;
+        try {
+          if (aenc && aenc.state === 'configured' && d.sampleRate === au.cfg.sampleRate) {
+            // Zaman damgasını videonun saatine göre kendimiz veriyoruz (sessizlik boşlukları korunur)
+            var n = d.numberOfFrames, dur = n*1e6/d.sampleRate;
+            var wall = (now() - t0)*1000 - dur;
+            if (aNext < 0) aNext = 0;
+            // ses başta/arada kesildiyse boşluğu sessizlikle doldur (MP4'te ses videoyla hizalı kalsın)
+            while (wall > aNext + 60000) {
+              var sn = Math.min(Math.round((wall - aNext)*d.sampleRate/1e6), Math.round(d.sampleRate/10));
+              var sil = new AudioData({ format: 'f32-planar', sampleRate: d.sampleRate, numberOfFrames: sn, numberOfChannels: nCh, timestamp: Math.round(aNext), data: new Float32Array(sn*nCh) });
+              aenc.encode(sil); sil.close();
+              aNext += sn*1e6/d.sampleRate;
+            }
+            var out = new Float32Array(n*nCh), tmp = new Float32Array(n);
+            for (var c=0;c<nCh;c++) {
+              d.copyTo(tmp, { planeIndex: Math.min(c, d.numberOfChannels-1), format: 'f32-planar' });
+              out.set(tmp, c*n);
+            }
+            var ad = new AudioData({ format: 'f32-planar', sampleRate: d.sampleRate, numberOfFrames: n, numberOfChannels: nCh, timestamp: Math.round(aNext), data: out });
+            aenc.encode(ad); ad.close();
+            aNext += dur;
+          }
+        } catch(e){}
+        d.close();
+        return pump();
+      }).catch(function(){});
+    })();
+  }
+  var frames = 0, lastKey = -1e9, lastTs = -1;
+  var r = {
+    wc: true, state: 'recording',
+    frame: function(t){
+      if (failed || venc.state !== 'configured') return;
+      var ts = Math.round((t - t0)*1000);
+      if (ts <= lastTs) return;
+      if (ts - lastTs < 30000) return; // en fazla ~33 fps
+      if (venc.encodeQueueSize > 4) return;
+      lastTs = ts;
+      var src = cv;
+      if (sctx) { sctx.drawImage(cv, 0, 0, small.width, small.height); src = small; }
+      try {
+        var vf = new VideoFrame(src, { timestamp: ts, duration: 33333 });
+        var key = ts - lastKey >= 2000000;
+        if (key) lastKey = ts;
+        venc.encode(vf, { keyFrame: key });
+        vf.close(); frames++;
+      } catch(e){ failed = true; }
+    },
+    stop: function(){
+      r.state = 'inactive';
+      reading = false;
+      try { au && au.reader.cancel(); } catch(e){}
+      var fl = venc.state === 'configured' ? venc.flush() : Promise.resolve();
+      fl.then(function(){ return aDone; })
+        .then(function(){ return aenc && aenc.state === 'configured' ? aenc.flush() : null; })
+        .then(function(){
+          try { venc.close(); } catch(e){}
+          try { aenc && aenc.close(); } catch(e){}
+          if (failed || frames < 3) throw new Error('enc');
+          muxer.finalize();
+          sendVideo(new Blob([muxOpts.target.buffer], { type: 'video/mp4' }), 'video/mp4');
+        })
+        .catch(function(e){ post({ type:'rec', error: 'mp4: ' + String(e) }); });
+    }
+  };
+  return r;
+}
+function wcFrame(t){ if (recorder && recorder.wc) recorder.frame(t); }
+function stopRecording(){
+  if (!recorder || recorder.state === 'inactive') return;
+  var r = recorder;
+  if (r.pending) { r.stop(); recorder = null; post({ type:'rec', stopped:true }); return; }
+  recorder = null;
+  r.stop();
+  post({ type:'rec', stopped:true });
+}
 
 // ---------------- Dışarıdan komutlar ----------------
 window.stage = {
@@ -1166,6 +1548,7 @@ function handle(m){
   switch (m.type) {
     case 'camera': if (m.on) startCamera(); else stopCamera(); break;
     case 'scene':
+      if ((m.name || 'camera') !== scene) sceneFadeT = now();
       scene = m.name || 'camera';
       if (scene === 'camera') startCamera(); else stopCamera();
       sfx.magic(); burst(W/2, floorTop() + (floorBottom()-floorTop())*0.5, 24, 3);
@@ -1205,6 +1588,7 @@ function handle(m){
       break;
     case 'record': if (m.on) startRecording(m.maxMs); else stopRecording(); break;
     case 'playAudio': playAudio(m); break;
+    case 'stopAudio': stopAudio(); break;
     case 'babble': babble(m); break;
     case 'dress': chars.forEach(function(c){ if (c.id === m.id) { c.acc = m.acc || []; c.squash = now(); burst(c.x, c.y - c.height()*0.8, 12, 3); sfx.magic(); } }); break;
     case 'game': if (m.name) startGame(m.name); else if (game) endGame(); break;
@@ -1217,3 +1601,6 @@ post({ type:'ready' });
 })();
 </script>
 </body></html>`;
+
+// mp4-muxer (MIT) ayrı dosyada: içinde ters tırnak var, şablona sonradan eklenir.
+export const STAGE_HTML = RAW.split("<!--MUXER-->").join("<script>" + MP4_MUXER_JS + "</script>");

@@ -109,18 +109,22 @@ export async function fetchVoice(text: string, voice: string): Promise<string | 
 export function offlineStory(chars: Character[]): Story {
   const a = chars[0]?.name ?? "Kahraman";
   const b = chars[1]?.name;
-  const w = (i: number) => (chars.length > 1 ? i % chars.length : 0);
+  const two = chars.length > 1;
+  const w = (i: number) => (two ? i % chars.length : 0);
+  const beat = (scene: string, narration: string, dialogue: { who: number; line: string }[], actions: { who: number; action: string }[]) => ({ scene, text: narration, narration, dialogue, actions });
   return {
-    title: `${a} ve Sihirli Yıldız`,
+    title: `${a} ve Kayıp Yıldız`,
     beats: [
-      { scene: "masa", text: `Bir varmış bir yokmuş, kâğıttan çıkıp canlanan ${a} adında minik bir kahraman varmış.`, actions: [{ who: 0, action: "wave" }] },
-      { scene: "park", text: `${a} bir gün parka gitmiş. Çiçekleri koklamış, kelebeklerle zıplamış.`, actions: [{ who: 0, action: "jump" }] },
-      { scene: "park", text: b ? `Orada ${b} ile tanışmış. İkisi hemen arkadaş olmuşlar ve birlikte dans etmişler.` : `Orada kuşlarla tanışmış. Kuşlar şarkı söylemiş, ${a} da dans etmiş.`, actions: [{ who: 0, action: "dance" }, { who: w(1), action: "dance" }] },
-      { scene: "uzay", text: `Gece gökyüzünde parlayan bir yıldız onları çağırmış. Fırrrt! Bir anda uzaya uçmuşlar.`, actions: [{ who: 0, action: "spin" }, { who: w(1), action: "spin" }] },
-      { scene: "uzay", text: `Yıldız çok yalnızmış. ${a} ona el sallamış ve "Artık yalnız değilsin, biz senin arkadaşınız!" demiş.`, actions: [{ who: 0, action: "wave" }] },
-      { scene: "sahil", text: `Yıldız onları sahile bırakmış. Dalgaların sesini dinleyip kumda koşmuşlar.`, actions: [{ who: 0, action: "walk" }, { who: w(1), action: "walk" }] },
-      { scene: "kar", text: `Sonra karlı ormanda kardan adamla oynamışlar ve çok yorulmuşlar.`, actions: [{ who: 0, action: "jump" }] },
-      { scene: "masa", text: `Eve dönüp kâğıtlarına uzanmışlar. Ve hepsi mutlu mesut uyumuş. Tatlı rüyalar!`, actions: [{ who: 0, action: "sleep" }, { who: w(1), action: "sleep" }] },
+      beat("masa", `Bir varmış bir yokmuş. Renkli kalemlerin arasında, kâğıttan çıkıp canlanan ${a} adında minik bir kahraman varmış. Bir sabah gözlerini açmış, gerinmiş ve kocaman gülümsemiş.`, [{ who: 0, line: "Günaydın! Bugün maceralı bir gün olacak!" }], [{ who: 0, action: "wave" }]),
+      beat("park", `${a} pencereden süzülen rüzgâra binip parka uçmuş. Çimenler yemyeşil, çiçekler rengârenkmiş. Kelebekler etrafında dans ediyormuş.`, [{ who: 0, line: "Vay canına, burası ne kadar güzel!" }], [{ who: 0, action: "jump" }]),
+      beat("park", b ? `Salıncakların yanında ${b} ile karşılaşmış. ${b} biraz üzgünmüş, çünkü gökyüzündeki en parlak yıldız kaybolmuş.` : `Salıncakların yanında küçük bir serçe ağlıyormuş. Gökyüzündeki en parlak yıldız kaybolmuş, serçe de evinin yolunu bulamıyormuş.`, b ? [{ who: 1, line: "Yıldızım kayboldu, onu bulmama yardım eder misin?" }, { who: 0, line: "Elbette! Birlikte buluruz!" }] : [{ who: 0, line: "Merak etme, yıldızı ben bulacağım!" }], [{ who: 0, action: "wave" }, { who: w(1), action: "giggle" }]),
+      beat("ciftlik", `İlk önce çiftliğe gitmişler. Tavuklar gıdaklıyor, inekler mööö diye selam veriyormuş. Ama yıldız samanlıkta da yokmuş.`, [{ who: w(1), line: "Burada sadece yumurta var, yıldız yok!" }], [{ who: 0, action: "walk" }, { who: w(1), action: "walk" }]),
+      beat("denizalti", `Sonra kocaman bir baloncuğun içine girip denizin dibine dalmışlar. Rengârenk balıklar onlara yol göstermiş. Bir balık, yıldızın gökyüzüne doğru uçtuğunu söylemiş.`, [{ who: 0, line: "Gökyüzü mü? O zaman bir rokete ihtiyacımız var!" }], [{ who: 0, action: "spin" }, { who: w(1), action: "spin" }]),
+      beat("uzay", `Kâğıttan bir roket yapıp uzaya fırlamışlar. Gezegenler parıl parıl parlıyormuş. Ve işte orada, minik yıldız bir bulutun arkasına saklanmış, titriyormuş.`, [{ who: 0, line: "Merhaba küçük yıldız, neden saklanıyorsun?" }], [{ who: 0, action: "flip" }]),
+      beat("uzay", `Yıldız çok yalnız kaldığını, kimsenin onunla oynamadığını söylemiş. ${a} ona sarılmış ve onu en güzel oyunlarına davet etmiş.`, [{ who: 0, line: "Artık yalnız değilsin, biz senin arkadaşınız!" }], [{ who: 0, action: "dance" }, { who: w(1), action: "dance" }]),
+      beat("parti", `Dünyaya dönünce yıldız için kocaman bir parti vermişler. Balonlar, konfetiler ve çikolatalı bir pasta varmış. Herkes şarkı söyleyip dans etmiş.`, [{ who: w(1), line: "Yaşasın! Bu dünyanın en güzel partisi!" }], [{ who: 0, action: "dance" }, { who: w(1), action: "jump" }]),
+      beat("kamp", `Gece olunca kamp ateşinin başına oturmuşlar. Yıldız gökyüzüne geri dönmüş ve onlar için her zamankinden daha parlak parlamış.`, [{ who: 0, line: "Bak, bize göz kırpıyor!" }], [{ who: 0, action: "wave" }, { who: w(1), action: "wave" }]),
+      beat("masa", `${a} yorgun ama mutlu bir şekilde kâğıdına geri uzanmış. Çünkü biliyormuş ki bir arkadaşa yardım etmek dünyanın en güzel macerasıymış. Tatlı rüyalar!`, [], [{ who: 0, action: "sleep" }, { who: w(1), action: "sleep" }]),
     ],
   };
 }

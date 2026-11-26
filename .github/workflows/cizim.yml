@@ -54,7 +54,7 @@ jobs:
         run: |
           u="${{ steps.deploy.outputs.url }}"
           echo "TTS:"; curl -sS --max-time 60 "$u/api/tts-check"; echo
-          echo "Masal:"; curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{"chars":[{"name":"Mavi Polis","kind":"polis"}],"deviceId":"ci"}' "$u/api/story" | head -c 600; echo
+          echo "Masal:"; curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{"chars":[{"name":"Mavi Polis","kind":"polis"}],"deviceId":"ci"}' "$u/api/story" | head -c 1500; echo
 
   apk:
     name: Android APK
