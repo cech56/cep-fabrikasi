@@ -52,7 +52,9 @@ const T = {
 const IFRAME_BRIDGE = `<script>(function(){var p={},s=0;function c(t,d){return new Promise(function(r,j){var i=++s;p[i]={r:r,j:j};parent.postMessage({cep:1,id:i,type:t,payload:d},"*")})}
 addEventListener("message",function(e){var m=e.data;if(!m||!m.cepReply)return;var q=p[m.id];if(!q)return;delete p[m.id];m.ok?q.r(m.value):q.j(new Error(m.value))});
 window.cep={get:function(k){return c("get",{key:String(k)})},set:function(k,v){return c("set",{key:String(k),value:v})},haptic:function(){},onChange:function(){},
-notify:function(){return Promise.resolve(null)},cancelNotify:function(){return Promise.resolve(true)},cancelAllNotify:function(){return Promise.resolve(true)}};
+notify:function(){return Promise.resolve(null)},cancelNotify:function(){return Promise.resolve(true)},cancelAllNotify:function(){return Promise.resolve(true)},
+ai:function(q,o){return c("ai",{prompt:String(q),system:o&&o.system?String(o.system):""})},vibrate:function(){return Promise.resolve(true)},torch:function(){return Promise.reject(new Error("Bu özellik sadece uygulamada çalışır"))},
+scanQR:function(){return Promise.reject(new Error("Bu özellik sadece uygulamada çalışır"))},takePhoto:function(){return Promise.reject(new Error("Bu özellik sadece uygulamada çalışır"))},sensor:function(){return function(){}},widget:function(){}};
 window.alert=function(m){console.log(m)};window.confirm=function(){return true};window.prompt=function(){return null};})();</script>`;
 
 function esc(s: string) {
@@ -102,11 +104,14 @@ footer p{margin:0 0 8px;font-size:14px;color:var(--muted)}
 <script>
 var KEY="cep:${app.id}",f=document.getElementById("f");
 function load(){try{return JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){return {}}}
-addEventListener("message",function(e){var m=e.data;if(!m||!m.cep||e.source!==f.contentWindow)return;var d=load(),r={cepReply:1,id:m.id,ok:true,value:null};
+function wid(){var i=localStorage.getItem("cep-web-id");if(!i){i=Math.random().toString(36).slice(2);localStorage.setItem("cep-web-id",i)}return "web-"+i}
+addEventListener("message",function(e){var m=e.data;if(!m||!m.cep||e.source!==f.contentWindow)return;
+if(m.type==="ai"){fetch("/api/ai",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({prompt:m.payload.prompt,system:m.payload.system,lang:"${lang}",deviceId:wid()})}).then(function(x){return x.json()}).then(function(j){f.contentWindow.postMessage(j.error?{cepReply:1,id:m.id,ok:false,value:j.error}:{cepReply:1,id:m.id,ok:true,value:j.text},"*")}).catch(function(){f.contentWindow.postMessage({cepReply:1,id:m.id,ok:false,value:"network"},"*")});return}
+var d=load(),r={cepReply:1,id:m.id,ok:true,value:null};
 try{if(m.type==="get")r.value=d[m.payload.key]===undefined?null:d[m.payload.key];else if(m.type==="set"){d[m.payload.key]=m.payload.value;localStorage.setItem(KEY,JSON.stringify(d));r.value=true}}catch(err){r.ok=false;r.value=String(err)}
 f.contentWindow.postMessage(r,"*")});
 document.getElementById("rep").onclick=function(){var why=window.prompt(${JSON.stringify(t.why)},"");if(why===null)return;
-fetch("/api/apps/${app.id}/report",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({reason:why,deviceId:"web-"+(localStorage.getItem("cep-web-id")||(function(){var i=Math.random().toString(36).slice(2);localStorage.setItem("cep-web-id",i);return i})())})}).then(function(){alert(${JSON.stringify(t.thanks)})})};
+fetch("/api/apps/${app.id}/report",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({reason:why,deviceId:wid()})}).then(function(){alert(${JSON.stringify(t.thanks)})})};
 </script></body></html>`;
 }
 

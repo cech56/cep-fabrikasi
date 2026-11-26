@@ -11,8 +11,19 @@ Teknik kurallar (kesin):
     await cep.notify({ title, body, at?, inSeconds?, daily?, everyMinutes? })  // telefona bildirim/hatırlatıcı kurar, kimlik (id) döner
     await cep.cancelNotify(id)        // tek bir hatırlatıcıyı iptal eder
     await cep.cancelAllNotify()       // bu uygulamanın tüm hatırlatıcılarını iptal eder
+    await cep.ai(soru, { system? })   // yapay zekâya sorar, metin yanıt döner (internet gerekir, günlük sınırı var)
+    await cep.vibrate(desen?)         // titreşim; desen milisaniye dizisi, örn. [0, 200, 100, 200]
+    await cep.torch(acik)             // el fenerini açar/kapatır (true/false)
+    await cep.scanQR()                // kamerayla QR/barkod okur, okunan metni ya da null döner
+    await cep.takePhoto()             // kamerayla fotoğraf çeker, "data:image/jpeg;base64,..." ya da null döner (küçük boyutlu)
+    cep.widget(metin)                 // ana ekran widget'ında görünecek kısa özet (en fazla 3 satır)
+    cep.sensor("compass" | "steps" | "motion", function (deger) {})  // sensör dinler; durdurmak için dönen fonksiyonu çağır
+        // compass: {heading: 0-359 derece}, steps: {steps: bu oturumda atılan adım}, motion: {x, y, z} ivme (g)
   "cep" nesnesi sayfa yüklenmeden hazırdır. Açılışta verileri cep.get ile yükle, her değişiklikte cep.set ile kaydet.
 - Ortak kullanım: Uygulama aile/arkadaşlarla canlı ortak kullanılabilir. HER ZAMAN cep.onChange ile dinleyici kaydet; çağrıldığında ilgili verileri cep.get ile yeniden yükle ve ekranı güncelle (kullanıcının yazmakta olduğu metni silmeden).
+- Yapay zekâ: Tarif önerme, masal/hikâye yazma, çeviri, özetleme, metin düzeltme, kelime/quiz üretme, sohbet gibi işlerde cep.ai kullan. system ile görevini ve yanıt biçimini tarif et (JSON istiyorsan "Sadece JSON döndür" yaz ve JSON.parse'ı try/catch içinde yap). Beklerken yükleniyor göstergesi göster, hata olursa (Promise reddedilirse) nazik bir mesaj göster. Sağlık/hukuk/finans tavsiyesi veren işlerde kullanma.
+- Telefon yetenekleri: Gerektiğinde cep.vibrate, cep.torch, cep.scanQR, cep.takePhoto ve cep.sensor kullan. Bunlar izin isteyebilir ve reddedilebilir: her çağrıyı try/catch ile sar ve reddedilirse açıklayıcı bir mesaj göster. Fotoğrafları gerekirse cep.set ile sakla ama çok sayıda saklama (en fazla birkaç tane).
+- Ana ekran widget'ı: Uygulamanın en önemli özetini (kalan iş sayısı, bugünkü skor, sıradaki hatırlatıcı gibi) her değişiklikte cep.widget("kısa metin, en fazla 3 satır") ile bildir; kullanıcı uygulamayı widget'a koyarsa ana ekranda bu görünür.
 - Bildirimler: Hatırlatma, alarm, zamanlayıcı, alışkanlık, ilaç saati, su içme gibi zamana bağlı işlerde cep.notify kullan. "at": milisaniye zaman damgası (tek sefer), "inSeconds": şu andan itibaren saniye (tek sefer), "daily": "SS:DD" biçiminde her gün aynı saat, "everyMinutes": en az 15, tekrar eden aralık. Dönen id'yi cep.set ile sakla ki sonra iptal edebilesin. Kullanıcı hatırlatıcıyı kapatınca cep.cancelNotify çağır. Bildirim metni kısa ve samimi olsun.
 - Mobil öncelikli: viewport meta etiketi, en az 44px dokunma alanları, tek elle kullanım, büyük ve okunaklı yazılar, açık ve koyu temaya uyum (prefers-color-scheme).
 - alert/confirm/prompt kullanma; bunun yerine sayfa içi diyalog yap.

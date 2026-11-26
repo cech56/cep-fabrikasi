@@ -29,9 +29,9 @@ export function today() {
 }
 
 // Günlük üretim limiti. Limit aşılmadıysa sayacı artırır ve false döner.
-export async function overDailyLimit(env: Env, deviceId: string): Promise<boolean> {
+export async function overDailyLimit(env: Env, deviceId: string, limitOverride?: number): Promise<boolean> {
   if (!env.DB) return false;
-  const limit = Number(env.DAILY_LIMIT_PER_DEVICE || 20);
+  const limit = limitOverride ?? Number(env.DAILY_LIMIT_PER_DEVICE || 20);
   const row = await env.DB.prepare(
     `INSERT INTO usage (device_id, day, count) VALUES (?1, ?2, 1)
      ON CONFLICT (device_id, day) DO UPDATE SET count = count + 1
@@ -204,4 +204,15 @@ export async function reportShared(env: Env, id: string, deviceId: string, reaso
   await env.DB!.prepare("UPDATE apps SET reports = reports + 1, hidden = CASE WHEN reports + 1 >= ?2 THEN 1 ELSE hidden END WHERE id = ?1")
     .bind(id, threshold)
     .run();
+}
+
+export async function logCrash(env: Env, c: { message: string; stack: string; version: string; deviceId: string }) {
+  if (!env.DB) return;
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO crashes (message, stack, version, device_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(
+      c.message, c.stack, c.version, c.deviceId, now,
+    ),
+    env.DB.prepare("DELETE FROM crashes WHERE created_at < ?1").bind(now - 30 * 24 * 3600 * 1000),
+  ]);
 }

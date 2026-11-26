@@ -13,6 +13,8 @@ ANTHROPIC_MODEL = "claude-opus-5-5"
 # Cihaz başına günlük üretim limiti (ücretsiz katmanı korumak için)
 DAILY_LIMIT_PER_DEVICE = "20"
 REPORTS_TO_HIDE = "3"
+# Mini uygulamaların cep.ai çağrısı için cihaz başına günlük sınır
+AI_CALLS_PER_DEVICE = "50"
 APK_URL = "https://github.com/cech56/cep-fabrikasi/releases"
 
 # Gizli anahtarlar koda yazılmaz, şu komutlarla eklenir:

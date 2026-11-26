@@ -12,6 +12,7 @@ export type Env = {
   DB?: D1Database;
   APK_URL?: string;
   REPORTS_TO_HIDE?: string;
+  AI_CALLS_PER_DEVICE?: string;
 };
 
 export type ImageInput = { mime: string; data: string };
@@ -123,4 +124,55 @@ async function generateWithAnthropic(env: Env, userMessage: string, image?: Imag
 
 export function generate(env: Env, userMessage: string, image?: ImageInput) {
   return env.AI_PROVIDER === "anthropic" ? generateWithAnthropic(env, userMessage, image) : generateWithGemini(env, userMessage, image);
+}
+
+// ---- Mini uygulamaların kendi yapay zekâ çağrıları (cep.ai) ----
+
+export const AI_HELPER_RULES = `Sen, Cep Fabrikası'nda yapılmış bir mini uygulamanın içindeki yapay zekâ yardımcısısın.
+Kurallar: Kısa, net ve kullanıcının dilinde yanıt ver. Uygulamanın verdiği talimata uy.
+Sağlık, hukuk, ilaç dozu, yatırım veya finans konusunda kişisel tavsiye verme; genel bilgi ver ve bir uzmana danışmasını öner.
+Kişisel veri isteme. Yasa dışı, cinsel, nefret içeren veya zarar verici içerik üretme. Bir markayı ya da gerçek kişiyi taklit etme.`;
+
+export async function aiText(env: Env, system: string, prompt: string): Promise<string> {
+  const sys = AI_HELPER_RULES + (system ? `\n\nUygulamanın talimatı:\n${system}` : "");
+  if (env.AI_PROVIDER === "anthropic") {
+    if (!env.ANTHROPIC_API_KEY) throw new ProviderError("ANTHROPIC_API_KEY eksik", 500);
+    const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    try {
+      const msg = await client.messages.create({ model: env.ANTHROPIC_MODEL, max_tokens: 2048, system: sys, messages: [{ role: "user", content: prompt }] });
+      return msg.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+    } catch (e) {
+      if (e instanceof Anthropic.RateLimitError) throw new ProviderError("Çok yoğunuz, biraz sonra tekrar dene.", 429);
+      if (e instanceof Anthropic.APIError) throw new ProviderError(`Anthropic hatası ${e.status}`);
+      throw e;
+    }
+  }
+  if (!env.GEMINI_API_KEY) throw new ProviderError("GEMINI_API_KEY eksik", 500);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
+  const call = () =>
+    fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sys }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 2048, ...(env.GEMINI_THINKING ? { thinkingConfig: { thinkingLevel: env.GEMINI_THINKING } } : {}) },
+      }),
+    });
+  let res = await call();
+  if (res.status === 503 || res.status === 500) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await call();
+  }
+  if (res.status === 503) throw new ProviderError("Google şu an çok yoğun, birkaç dakika sonra tekrar dene.", 503);
+  if (res.status === 429) throw new ProviderError("Günlük ücretsiz kota doldu, biraz sonra tekrar dene.", 429);
+  if (!res.ok) throw new ProviderError(`Gemini hatası ${res.status}`);
+  const data: any = await res.json();
+  const cand = data?.candidates?.[0];
+  if (cand?.finishReason === "SAFETY" || cand?.finishReason === "PROHIBITED_CONTENT") return "Bu konuda yardımcı olamıyorum.";
+  return (cand?.content?.parts ?? [])
+    .filter((p: any) => !p.thought && p.text)
+    .map((p: any) => p.text)
+    .join("")
+    .trim();
 }

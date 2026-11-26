@@ -60,3 +60,13 @@ CREATE TABLE IF NOT EXISTS room_data (
   PRIMARY KEY (room_id, key)
 );
 CREATE INDEX IF NOT EXISTS room_data_changes ON room_data (room_id, updated_at);
+
+-- Uygulama çökme raporları (30 gün saklanır)
+CREATE TABLE IF NOT EXISTS crashes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message TEXT NOT NULL,
+  stack TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  device_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);

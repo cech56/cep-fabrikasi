@@ -7,6 +7,7 @@ import {
   getShared,
   insertShared,
   listVitrin,
+  logCrash,
   overDailyLimit,
   reportShared,
   roomChanges,
@@ -15,9 +16,10 @@ import {
   toggleLike,
   usageToday,
 } from "./db";
+import { privacyPage, termsPage } from "./legal";
 import { invitePage, notFoundPage, pageLang, sharedPage } from "./page";
 import { CATEGORIES, GeneratedApp, buildUserMessage, normalizeCategory } from "./prompt";
-import { Env, ImageInput, ProviderError, generate } from "./providers";
+import { Env, ImageInput, ProviderError, aiText, generate } from "./providers";
 import { checkHtml, syntaxError } from "./safety";
 
 const MAX_PROMPT = 2000;
@@ -63,6 +65,7 @@ const EN: Record<string, string> = {
   "Günlük ücretsiz kota doldu, biraz sonra tekrar dene.": "The daily free quota is used up, try again later.",
   "Uygulama çok uzun oldu, daha sade anlatmayı dene.": "The app got too long, try describing a simpler version.",
   "Bu isteği yapamıyorum, başka bir şey dener misin?": "I can't make that one. Want to try something else?",
+  "Bugünlük yapay zekâ hakkın doldu.": "You've used today's AI answers.",
 };
 const tr = (lang: string, msg: string) => (lang === "en" ? EN[msg] ?? msg : msg);
 
@@ -166,6 +169,33 @@ export default {
     const path = url.pathname;
     const apkUrl = env.APK_URL || "https://github.com/cech56/cep-fabrikasi/releases";
     if (path === "/health") return json({ ok: true, provider: env.AI_PROVIDER, db: !!env.DB });
+    if (path === "/gizlilik" || path === "/privacy") return html(privacyPage(path === "/privacy" ? "en" : pageLang(request)));
+    if (path === "/kosullar" || path === "/terms") return html(termsPage(path === "/terms" ? "en" : pageLang(request)));
+
+    // Mini uygulamanın kendi yapay zekâ sorusu (cep.ai)
+    if (path === "/api/ai" && request.method === "POST") {
+      const b = await readJson(request);
+      const lang = b?.lang === "en" ? "en" : "tr";
+      const prompt = str(b?.prompt, 4000);
+      if (!prompt) return json({ error: tr(lang, "Ne yapmak istediğini yaz") }, 400);
+      const deviceId = str(b?.deviceId, 64) || "anon";
+      if (await overDailyLimit(env, `ai:${deviceId}`, Number(env.AI_CALLS_PER_DEVICE || 50))) {
+        return json({ error: tr(lang, "Bugünlük yapay zekâ hakkın doldu."), limit: true }, 429);
+      }
+      try {
+        const text = await aiText(env, str(b?.system, 2000), `${lang === "en" ? "Answer in English." : "Türkçe yanıt ver."}\n\n${prompt}`);
+        return json({ text });
+      } catch (e) {
+        return json({ error: e instanceof ProviderError ? tr(lang, e.message) : tr(lang, "Beklenmeyen bir hata oldu") }, 502);
+      }
+    }
+    if (path === "/api/crash" && request.method === "POST") {
+      const b = (await readJson(request)) ?? {};
+      ctx.waitUntil(
+        logCrash(env, { message: str(b.message, 500), stack: str(b.stack, 4000), version: str(b.version, 20), deviceId: str(b.deviceId, 64) || "anon" }).catch(() => {}),
+      );
+      return json({ ok: true });
+    }
 
     // Paylaşılan uygulamanın web sayfası
     let m = path.match(/^\/a\/([a-z0-9]{4,16})$/);
