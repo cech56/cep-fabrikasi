@@ -1,5 +1,5 @@
 import { getDeviceId } from "./storage";
-import { Box, Character, WalkStyle } from "./types";
+import { Box, Character, Story, WalkStyle } from "./types";
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
@@ -39,7 +39,7 @@ export async function analyzeDrawing(jpegDataUrl: string): Promise<Analysis | nu
       lines,
       pitch: Math.max(0.6, Math.min(1.8, Number(d.voicePitch) || 1.2)),
       walkStyle: STYLES.includes(d.walkStyle) ? d.walkStyle : "walk",
-      parts: { legs: boxes(d.legs), arms: boxes(d.arms), wings: boxes(d.wings) },
+      parts: { legs: boxes(d.legs), arms: boxes(d.arms), wings: boxes(d.wings), head: toBox(d.head) ?? undefined },
     };
   } catch {
     return null;
@@ -69,5 +69,58 @@ export function offlineAnalysis(): Analysis {
     pitch: 1.1 + Math.random() * 0.5,
     walkStyle: "walk",
     parts: { legs: [], arms: [], wings: [] },
+  };
+}
+
+async function postJson(path: string, body: unknown, ms: number): Promise<any | null> {
+  if (!API_URL) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...(body as object), deviceId: await getDeviceId() }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d && !d.error ? d : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchStory(chars: Character[], theme = ""): Promise<Story | null> {
+  const d = await postJson("/api/story", { chars: chars.map((c) => ({ name: c.name, kind: c.kind })), theme }, 40_000);
+  if (!d || !Array.isArray(d.beats) || !d.beats.length) return null;
+  return d as Story;
+}
+
+// Sunucu seslendirmesi (videoya da girer). Başarısızsa null.
+export async function fetchVoice(text: string, voice: string): Promise<string | null> {
+  const d = await postJson("/api/tts", { text, voice }, 20_000);
+  return d?.audio ?? null;
+}
+
+// Yapay zekâ kapalıyken ya da sunucuya ulaşılamazken hazır masal
+export function offlineStory(chars: Character[]): Story {
+  const a = chars[0]?.name ?? "Kahraman";
+  const b = chars[1]?.name;
+  const w = (i: number) => (chars.length > 1 ? i % chars.length : 0);
+  return {
+    title: `${a} ve Sihirli Yıldız`,
+    beats: [
+      { scene: "masa", text: `Bir varmış bir yokmuş, kâğıttan çıkıp canlanan ${a} adında minik bir kahraman varmış.`, actions: [{ who: 0, action: "wave" }] },
+      { scene: "park", text: `${a} bir gün parka gitmiş. Çiçekleri koklamış, kelebeklerle zıplamış.`, actions: [{ who: 0, action: "jump" }] },
+      { scene: "park", text: b ? `Orada ${b} ile tanışmış. İkisi hemen arkadaş olmuşlar ve birlikte dans etmişler.` : `Orada kuşlarla tanışmış. Kuşlar şarkı söylemiş, ${a} da dans etmiş.`, actions: [{ who: 0, action: "dance" }, { who: w(1), action: "dance" }] },
+      { scene: "uzay", text: `Gece gökyüzünde parlayan bir yıldız onları çağırmış. Fırrrt! Bir anda uzaya uçmuşlar.`, actions: [{ who: 0, action: "spin" }, { who: w(1), action: "spin" }] },
+      { scene: "uzay", text: `Yıldız çok yalnızmış. ${a} ona el sallamış ve "Artık yalnız değilsin, biz senin arkadaşınız!" demiş.`, actions: [{ who: 0, action: "wave" }] },
+      { scene: "sahil", text: `Yıldız onları sahile bırakmış. Dalgaların sesini dinleyip kumda koşmuşlar.`, actions: [{ who: 0, action: "walk" }, { who: w(1), action: "walk" }] },
+      { scene: "kar", text: `Sonra karlı ormanda kardan adamla oynamışlar ve çok yorulmuşlar.`, actions: [{ who: 0, action: "jump" }] },
+      { scene: "masa", text: `Eve dönüp kâğıtlarına uzanmışlar. Ve hepsi mutlu mesut uyumuş. Tatlı rüyalar!`, actions: [{ who: 0, action: "sleep" }, { who: w(1), action: "sleep" }] },
+    ],
   };
 }

@@ -1,13 +1,16 @@
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_URL } from "../api";
+import { makeBook } from "../book";
 import { C } from "../theme";
-import { Settings as S } from "../types";
+import { Character, Settings as S } from "../types";
 
-type Props = { settings: S; count: number; onChange: (s: S) => void; onDeleteAll: () => void; onBack: () => void };
+type Props = { settings: S; chars: Character[]; count: number; onChange: (s: S) => void; onDeleteAll: () => void; onBack: () => void };
 
-export function Settings({ settings, count, onChange, onDeleteAll, onBack }: Props) {
+export function Settings({ settings, chars, count, onChange, onDeleteAll, onBack }: Props) {
   const insets = useSafeAreaInsets();
+  const [busy, setBusy] = useState(false);
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 30 }}>
       <Pressable onPress={onBack} hitSlop={12}>
@@ -24,6 +27,28 @@ export function Settings({ settings, count, onChange, onDeleteAll, onBack }: Pro
           <Switch value={settings.aiConsent} onValueChange={(v) => onChange({ ...settings, aiConsent: v })} trackColor={{ true: C.purple }} />
         </View>
       </View>
+
+      <Pressable
+        style={s.card}
+        disabled={busy || !chars.length}
+        onPress={async () => {
+          setBusy(true);
+          try {
+            await makeBook(chars);
+          } catch {
+            Alert.alert("Kitap oluşturulamadı");
+          }
+          setBusy(false);
+        }}
+      >
+        <View style={s.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cardT}>📖 Karakter kitabını oluştur (PDF)</Text>
+            <Text style={s.small}>{chars.length ? `${chars.length} karakterle yazdırılabilir bir kitap. Kaydedebilir, yazdırabilir ya da aile grubuna gönderebilirsiniz.` : "Önce bir çizim canlandırın."}</Text>
+          </View>
+          {busy && <ActivityIndicator color={C.yellow} />}
+        </View>
+      </Pressable>
 
       <View style={[s.card, { borderColor: C.yellow, borderWidth: 1 }]}>
         <Text style={s.cardT}>⭐ Çizim Canlanır Pro · 99 TL/ay</Text>
@@ -51,7 +76,7 @@ export function Settings({ settings, count, onChange, onDeleteAll, onBack }: Pro
       >
         <Text style={{ color: C.pink, fontWeight: "800" }}>Tüm karakterleri sil</Text>
       </Pressable>
-      <Text style={s.ver}>Sürüm 0.1 · deneme</Text>
+      <Text style={s.ver}>Sürüm 0.2 · deneme</Text>
     </ScrollView>
   );
 }

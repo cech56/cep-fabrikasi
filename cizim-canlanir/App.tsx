@@ -98,6 +98,7 @@ export default function App() {
           settings={settings}
           allChars={chars}
           onCreated={(c) => setChars((l) => [c, ...l])}
+          onUpdate={(c) => setChars((l) => l.map((x) => (x.id === c.id ? c : x)))}
           onDelete={async (c) => {
             await deleteChar(c.id);
             setChars((l) => l.filter((x) => x.id !== c.id));
@@ -112,6 +113,7 @@ export default function App() {
       ) : screen.name === "settings" ? (
         <Settings
           settings={settings}
+          chars={chars}
           count={chars.length}
           onChange={updateSettings}
           onDeleteAll={async () => {

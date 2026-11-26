@@ -49,6 +49,12 @@ jobs:
         run: |
           for i in $(seq 1 12); do curl -fsS "${{ steps.deploy.outputs.url }}/health" && exit 0; sleep 15; done
           exit 1
+      - name: Seslendirme ve masal kontrolü
+        continue-on-error: true
+        run: |
+          u="${{ steps.deploy.outputs.url }}"
+          echo "TTS:"; curl -sS --max-time 60 "$u/api/tts-check"; echo
+          echo "Masal:"; curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{"chars":[{"name":"Mavi Polis","kind":"polis"}],"deviceId":"ci"}' "$u/api/story" | head -c 600; echo
 
   apk:
     name: Android APK

@@ -11,7 +11,8 @@ export type Character = {
   lines: string[];
   pitch: number; // konuşma sesi inceliği
   walkStyle: WalkStyle;
-  parts: { legs: Box[]; arms: Box[]; wings: Box[] };
+  parts: { legs: Box[]; arms: Box[]; wings: Box[]; head?: Box };
+  acc?: string[]; // giydirme: sapka, tac, gozluk, papyon, pelerin, balon
   w: number;
   h: number;
   createdAt: number;
@@ -24,4 +25,6 @@ export type Settings = {
 };
 
 // Sahneye giden karakter tanımı (çizim PNG'si data URL olarak)
-export type StageChar = { id: string; png: string; walkStyle: WalkStyle; parts: Character["parts"]; scale?: number };
+export type StageChar = { id: string; png: string; walkStyle: WalkStyle; parts: Character["parts"]; acc?: string[]; scale?: number };
+
+export type Story = { title: string; beats: { scene: string; text: string; actions: { who: number; action: string }[] }[] };

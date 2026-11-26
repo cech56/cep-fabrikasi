@@ -2,7 +2,7 @@
   "expo": {
     "name": "Çizim Canlanır",
     "slug": "cizim-canlanir",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -23,8 +23,12 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["android.permission.CAMERA"],
-      "blockedPermissions": ["android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
@@ -34,6 +38,17 @@
           "photosPermission": "Galerideki bir çizim fotoğrafını canlandırmak için seçtiğin görsele erişilir.",
           "cameraPermission": "Çizimi taramak ve karakteri masanın üstünde görmek için kamera kullanılır. Görüntü kaydedilmez.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Kaydettiğin videoları galeriye koymak için kullanılır.",
+          "savePhotosPermission": "Videoyu galeriye kaydetmek için kullanılır.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": [
+            "video"
+          ]
         }
       ]
     ]
