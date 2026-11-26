@@ -177,7 +177,13 @@ export default function App() {
 
   const pin = () => {
     if (!open || preview) return;
-    if (!pinShortcut(open.id, open.name, open.emoji)) Alert.alert("Olmadı", "Telefonun ana ekrana kısayol eklemeyi desteklemiyor.");
+    const r = pinShortcut(open.id, open.name, open.emoji);
+    if (r === "dynamic")
+      Alert.alert(
+        "Kısayol hazır 📌",
+        `Telefonun doğrudan ana ekrana eklemeye izin vermiyor. Cep Fabrikası simgesine basılı tut, açılan menüde "${open.name}" çıkacak; onu tutup ana ekrana sürükle.`,
+      );
+    else if (r !== "pinned") Alert.alert("Kısayol eklenemedi", `Teknik bilgi: ${r}`);
   };
 
   const report = () => {
