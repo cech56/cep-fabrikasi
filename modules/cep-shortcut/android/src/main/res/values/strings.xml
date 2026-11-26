@@ -1,0 +1,4 @@
+<resources>
+  <string name="cep_widget_label">Cep Fabrikası</string>
+  <string name="cep_widget_empty">Bir mini uygulamada "🧩 Widget\'a koy"a dokun.</string>
+</resources>
