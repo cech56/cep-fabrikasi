@@ -1,0 +1,96 @@
+name: Çizim Canlanır - sunucu ve APK
+
+on:
+  push:
+    branches: [main, claude/project-thread-7hfi3k]
+    paths: ["cizim-canlanir/**", ".github/workflows/cizim.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cizim-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker:
+    name: Ara sunucu (Cloudflare)
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    defaults:
+      run:
+        working-directory: cizim-canlanir/worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cizim-canlanir/worker/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Yayınla
+        id: deploy
+        run: |
+          set -o pipefail
+          npx wrangler deploy 2>&1 | tee deploy.log
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          [ -n "$url" ] || { echo "::error::workers.dev adresi bulunamadı"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Gemini anahtarını sunucuya gizli olarak ekle
+        run: printf '%s' "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
+      - name: Sağlık kontrolü
+        continue-on-error: true
+        run: |
+          for i in $(seq 1 12); do curl -fsS "${{ steps.deploy.outputs.url }}/health" && exit 0; sleep 15; done
+          exit 1
+      - name: Seslendirme ve masal kontrolü
+        continue-on-error: true
+        run: |
+          u="${{ steps.deploy.outputs.url }}"
+          echo "TTS:"; curl -sS --max-time 60 "$u/api/tts-check"; echo
+          echo "Masal:"; curl -sS --max-time 60 -X POST -H 'content-type: application/json' --data '{"chars":[{"name":"Mavi Polis","kind":"polis"}],"deviceId":"ci"}' "$u/api/story" | head -c 1500; echo
+
+  apk:
+    name: Android APK
+    needs: worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cizim-canlanir
+    env:
+      EXPO_PUBLIC_API_URL: ${{ needs.worker.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cizim-canlanir/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx expo prebuild --platform android --no-install
+      - name: APK derle
+        working-directory: cizim-canlanir/android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs=-Xmx4g
+      - name: APK'yı adlandır
+        run: cp android/app/build/outputs/apk/release/app-release.apk cizim-canlanir-${{ github.run_number }}.apk
+      - name: İndirme linki için sürüm oluştur
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cizim-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Çizim Canlanır - deneme ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          body: Telefonundan bu sayfayı açıp APK dosyasına dokun, indir ve kur.
+          files: cizim-canlanir/cizim-canlanir-*.apk

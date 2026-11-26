@@ -1,0 +1,11 @@
+name = "cizim-canlanir"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_THINKING = "low"
+# Cihaz başına günlük çizim tanıma sınırı (ücretsiz kotayı korumak için)
+DAILY_LIMIT_PER_DEVICE = "30"
+
+# Gizli anahtar koda yazılmaz: npx wrangler secret put GEMINI_API_KEY

@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "Çizim Canlanır",
+    "slug": "cizim-canlanir",
+    "version": "0.4.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1B1530",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B1530"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cizimcanlanir.app"
+    },
+    "android": {
+      "package": "com.cizimcanlanir.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1B1530",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Galerideki bir çizim fotoğrafını canlandırmak için seçtiğin görsele erişilir.",
+          "cameraPermission": "Çizimi taramak ve karakteri masanın üstünde görmek için kamera kullanılır. Görüntü kaydedilmez.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Kaydettiğin videoları galeriye koymak için kullanılır.",
+          "savePhotosPermission": "Videoyu galeriye kaydetmek için kullanılır.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": [
+            "video"
+          ]
+        }
+      ],
+      [
+        "@reactvision/react-viro",
+        {
+          "provider": "none",
+          "telemetry": false,
+          "android": {
+            "xRMode": [
+              "AR"
+            ]
+          }
+        }
+      ]
+    ]
+  }
+}

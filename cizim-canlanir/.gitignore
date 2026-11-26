@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+/android/
+/ios/
+*.apk
+*.aab
+.env
+.env.*
+worker/.wrangler/
+worker/.dev.vars
