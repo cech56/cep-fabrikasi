@@ -5,8 +5,8 @@ import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, Scro
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ImageInput } from "../api";
 import { MicButton } from "../components/MicButton";
-import { t } from "../i18n";
-import { TEMPLATES } from "../templates";
+import { getLang, t } from "../i18n";
+import { templates } from "../templates";
 import { useTheme } from "../theme";
 import { MiniApp } from "../types";
 import { Vitrin } from "./Vitrin";
@@ -19,6 +19,7 @@ type Props = {
   onOpenShared: (id: string) => void;
   onPro: () => void;
   onProfile: () => void;
+  onToggleLang: () => void;
   usage: { used: number; limit: number } | null;
 };
 
@@ -32,7 +33,7 @@ async function prepareImage(uri: string): Promise<{ uri: string; input: ImageInp
   return { uri: out.uri, input: { mime: "image/jpeg", data: out.base64 ?? "" } };
 }
 
-export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, onProfile, usage }: Props) {
+export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, onProfile, onToggleLang, usage }: Props) {
   const th = useTheme();
   const [prompt, setPrompt] = useState("");
   const [image, setImage] = useState<{ uri: string; input: ImageInput } | null>(null);
@@ -71,8 +72,11 @@ export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, on
   const top = (
     <View>
       <View style={styles.brandRow}>
-        <Text style={[styles.brand, { color: th.ink }]}>🏭 Cep Fabrikası</Text>
+        <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.brand, { color: th.ink }]}>🏭 Cep Fabrikası</Text>
         <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable onPress={onToggleLang} hitSlop={8} accessibilityLabel={t("langTitle")} style={[styles.pill, { borderColor: th.border }]}>
+            <Text style={{ color: th.ink, fontWeight: "800", fontSize: 13 }}>{getLang() === "tr" ? "🇹🇷 TR" : "🇬🇧 EN"}</Text>
+          </Pressable>
           <Pressable onPress={onProfile} hitSlop={8} style={[styles.pill, { borderColor: th.border }]}>
             <Text style={{ fontSize: 14 }}>👤</Text>
           </Pressable>
@@ -142,7 +146,7 @@ export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, on
 
       <Text style={[styles.section, { color: th.ink }]}>{t("ideas")}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 16 }}>
-        {TEMPLATES.map((tp) => (
+        {templates().map((tp) => (
           <Pressable key={tp.title} onPress={() => setPrompt(tp.prompt)} style={[styles.chip, { backgroundColor: th.card, borderColor: th.border }]}>
             <Text style={{ color: th.ink, fontSize: 15 }}>
               {tp.emoji} {tp.title}
@@ -204,7 +208,7 @@ export function Home({ apps, onCreate, onOpen, onDelete, onOpenShared, onPro, on
 
 const styles = StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 12 },
-  brand: { fontSize: 28, fontWeight: "800" },
+  brand: { flex: 1, fontSize: 26, fontWeight: "800", marginRight: 8 },
   pill: { borderWidth: 2, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, minHeight: 30, justifyContent: "center" },
   tabs: { flexDirection: "row", borderRadius: 999, borderWidth: 1, padding: 4, marginBottom: 14 },
   tab: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 999 },

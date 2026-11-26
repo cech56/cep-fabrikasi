@@ -1,5 +1,5 @@
 // Ana ekrandaki hazır fikirler: tek dokunuşla isteği doldurur.
-import { LANG } from "./i18n";
+import { getLang } from "./i18n";
 
 const TR = [
   { emoji: "🛒", title: "Market listesi", prompt: "Market alışveriş listesi. Ürün ekleyeyim, aldıklarımın üstü çizilsin, kategorilere göre gruplansın, alınanları tek tuşla temizleyeyim." },
@@ -21,4 +21,4 @@ const EN = [
   { emoji: "🧒", title: "Kids star chart", prompt: "Daily task and star chart for my child. Tasks like brushing teeth and tidying up, earn a star for each, and a celebration animation at 10 stars." },
 ];
 
-export const TEMPLATES = LANG === "tr" ? TR : EN;
+export const templates = () => (getLang() === "tr" ? TR : EN);

@@ -3,7 +3,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import { LANG } from "./i18n";
+import { getLang } from "./i18n";
 
 const CHANNEL = "hatirlatici";
 const MAX_PER_APP = 30;
@@ -15,7 +15,7 @@ export function setupNotifications() {
   });
   if (Platform.OS === "android") {
     Notifications.setNotificationChannelAsync(CHANNEL, {
-      name: LANG === "tr" ? "Hatırlatıcılar" : "Reminders",
+      name: getLang() === "tr" ? "Hatırlatıcılar" : "Reminders",
       importance: Notifications.AndroidImportance.HIGH,
     }).catch(() => {});
   }

@@ -1,7 +1,7 @@
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
-import { LANG, t } from "../i18n";
+import { Alert, Linking, Pressable, StyleSheet, Text } from "react-native";
+import { getLang, t } from "../i18n";
 import { useTheme } from "../theme";
 
 type Props = {
@@ -42,11 +42,15 @@ export function MicButton({ onText, currentText, size = 44 }: Props) {
       }
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert(t("micPerm"), t("micPermBody"));
+        // "Bir daha sorma" seçildiyse sistem penceresi çıkmaz; ayarlara yönlendir
+        Alert.alert(t("micPerm"), perm.canAskAgain ? t("micPermBody") : t("micSettings"), [
+          { text: t("cancel"), style: "cancel" },
+          { text: t("openSettings"), onPress: () => Linking.openSettings() },
+        ]);
         return;
       }
       base.current = currentText.trim();
-      ExpoSpeechRecognitionModule.start({ lang: LANG === "tr" ? "tr-TR" : "en-US", interimResults: true, continuous: false, addsPunctuation: true });
+      ExpoSpeechRecognitionModule.start({ lang: getLang() === "tr" ? "tr-TR" : "en-US", interimResults: true, continuous: false, addsPunctuation: true });
     } catch {
       Alert.alert(t("micFail"), t("micFailBody"));
     }

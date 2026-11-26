@@ -18,7 +18,7 @@ import {
   shareApp,
   shareUrl,
 } from "./src/api";
-import { t } from "./src/i18n";
+import { Lang, getLang, loadLang, setLang, t } from "./src/i18n";
 import { cancelAllForApp, onNotificationOpen, setupNotifications } from "./src/notify";
 import { CARPIM_HTML } from "./src/samples/carpim";
 import { Generating } from "./src/screens/Generating";
@@ -88,6 +88,17 @@ export default function App() {
   const [nickname, setNickname] = useState("");
   const [fresh, setFresh] = useState<Record<string, number>>({});
   const pendingLocal = useRef<string | null>(null);
+  const [lang, setLangState] = useState<Lang>(getLang());
+
+  useEffect(() => {
+    loadLang().then(setLangState);
+  }, []);
+
+  const toggleLang = async () => {
+    const next: Lang = getLang() === "tr" ? "en" : "tr";
+    await setLang(next);
+    setLangState(next);
+  };
 
   const refreshUsage = useCallback(() => {
     fetchUsage().then((u) => u && setUsage(u));
@@ -360,7 +371,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} key={lang}>
         {open ? (
           <Runner
             app={open}
@@ -387,6 +398,7 @@ export default function App() {
             onOpenShared={openShared}
             onPro={() => setPro({})}
             onProfile={() => setProfileOpen(true)}
+            onToggleLang={toggleLang}
             onDelete={async (a) => {
               await cancelAllForApp(a.id);
               await deleteApp(a.id);

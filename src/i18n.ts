@@ -1,5 +1,5 @@
 // Arayüz dili: telefon Türkçe ise Türkçe, değilse İngilizce.
-function detect(): "tr" | "en" {
+function detect(): Lang {
   try {
     const loc = Intl.DateTimeFormat().resolvedOptions().locale || "tr";
     return loc.toLowerCase().startsWith("tr") ? "tr" : "en";
@@ -8,7 +8,29 @@ function detect(): "tr" | "en" {
   }
 }
 
-export const LANG = detect();
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+export type Lang = "tr" | "en";
+const LANG_KEY = "cep/lang";
+let current: Lang = detect();
+
+export const getLang = () => current;
+
+// Kayıtlı dil tercihini yükler (yoksa telefonun dili)
+export async function loadLang(): Promise<Lang> {
+  try {
+    const v = await AsyncStorage.getItem(LANG_KEY);
+    if (v === "tr" || v === "en") current = v;
+  } catch {}
+  return current;
+}
+
+export async function setLang(l: Lang) {
+  current = l;
+  try {
+    await AsyncStorage.setItem(LANG_KEY, l);
+  } catch {}
+}
 
 const tr = {
   // genel
@@ -43,6 +65,7 @@ const tr = {
   nickTitle: "Yapımcı adın",
   nickBody: "Vitrinde paylaştığın uygulamaların altında bu ad görünür. Gerçek adını yazmak zorunda değilsin.",
   nickPlaceholder: "Takma ad (örn. MutfakUstası)",
+  langTitle: "Dil",
   // üretim ekranı
   genTitle: "Fabrika çalışıyor",
   genEdit: "Değiştiriyorum",
@@ -120,6 +143,8 @@ const tr = {
   // ses
   micPerm: "Mikrofon izni",
   micPermBody: "Sesle yazdırmak için mikrofon iznini açman gerekiyor.",
+  micSettings: "Telefon ayarlarından Cep Fabrikası > İzinler > Mikrofon'u açman gerekiyor.",
+  openSettings: "Ayarları aç",
   micNone: "Ses tanıma yok",
   micNoneBody: "Telefonunda ses tanıma servisi bulunamadı. Google uygulamasını güncellemeyi deneyebilirsin.",
   micFail: "Ses anlaşılamadı",
@@ -171,6 +196,7 @@ const en: Dict = {
   nickTitle: "Your maker name",
   nickBody: "This name appears under the apps you share in the Showcase. It doesn't have to be your real name.",
   nickPlaceholder: "Nickname (e.g. KitchenWizard)",
+  langTitle: "Language",
   genTitle: "The factory is working",
   genEdit: "Making changes",
   genEditSub: "Applying what you asked…",
@@ -239,6 +265,8 @@ const en: Dict = {
   notifPreview: "Add the app to your factory first to set reminders.",
   micPerm: "Microphone permission",
   micPermBody: "Allow microphone access to dictate.",
+  micSettings: "Turn on the microphone in your phone settings: Cep Fabrikası > Permissions > Microphone.",
+  openSettings: "Open settings",
   micNone: "No speech recognition",
   micNoneBody: "No speech recognition service was found. Try updating the Google app.",
   micFail: "Didn't catch that",
@@ -256,12 +284,12 @@ const en: Dict = {
   serverError: "Server error ({status})",
 };
 
-const DICT = LANG === "tr" ? tr : en;
 
 export type Key = keyof Dict;
 
 export function t(key: Key, vars?: Record<string, string | number>): string {
-  let s: string = DICT[key] ?? tr[key] ?? key;
+  const dict = current === "tr" ? tr : en;
+  let s: string = dict[key] ?? tr[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
   return s;
 }

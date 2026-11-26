@@ -2,7 +2,7 @@
   "expo": {
     "name": "Cep Fabrikası",
     "slug": "cep-fabrikasi",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -46,8 +46,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Fotoğraftan uygulama yapmak için seçtiğin görsele erişilir.",
-          "cameraPermission": "Fotoğraftan uygulama yapmak için kamera kullanılır.",
-          "microphonePermission": false
+          "cameraPermission": "Fotoğraftan uygulama yapmak için kamera kullanılır."
         }
       ]
     ]

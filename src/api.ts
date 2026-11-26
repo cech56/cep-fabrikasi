@@ -1,4 +1,4 @@
-import { LANG, t } from "./i18n";
+import { getLang, t } from "./i18n";
 import { getDeviceId } from "./storage";
 import { MiniApp, Room, SharedApp, VitrinItem } from "./types";
 
@@ -20,7 +20,7 @@ export async function generateApp(prompt: string, previousHtml?: string, image?:
     const res = await fetch(`${base()}/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt, previousHtml, image, lang: LANG, deviceId: await getDeviceId() }),
+      body: JSON.stringify({ prompt, previousHtml, image, lang: getLang(), deviceId: await getDeviceId() }),
       signal: controller.signal,
     });
     const raw = await res.text();
