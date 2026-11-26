@@ -7,13 +7,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ParentGate } from "./src/components/ParentGate";
 import { Home } from "./src/screens/Home";
 import { Onboarding } from "./src/screens/Onboarding";
+import { ARPlay } from "./src/screens/ARPlay";
 import { Play } from "./src/screens/Play";
 import { Settings } from "./src/screens/Settings";
 import { deleteAll, deleteChar, loadChars, loadSettings, saveSettings } from "./src/storage";
 import { C } from "./src/theme";
 import { Character, Settings as S } from "./src/types";
 
-type Screen = { name: "home" } | { name: "settings" } | { name: "play"; chars: Character[]; photo?: string; key: number };
+type Screen = { name: "home" } | { name: "settings" } | { name: "ar"; chars: Character[] } | { name: "play"; chars: Character[]; photo?: string; key: number };
 
 async function toDataUrl(uri: string, width: number) {
   const ctx = ImageManipulator.manipulate(uri);
@@ -90,6 +91,8 @@ export default function App() {
       <StatusBar style="light" />
       {!settings.onboarded ? (
         <Onboarding onDone={(aiConsent) => updateSettings({ onboarded: true, aiConsent })} />
+      ) : screen.name === "ar" ? (
+        <ARPlay chars={screen.chars} onBack={() => setScreen({ name: "home" })} />
       ) : screen.name === "play" ? (
         <Play
           key={screen.key}
@@ -109,6 +112,7 @@ export default function App() {
             capture(true);
           }}
           onBack={() => setScreen({ name: "home" })}
+          onAR={(list) => setScreen({ name: "ar", chars: list })}
         />
       ) : screen.name === "settings" ? (
         <Settings

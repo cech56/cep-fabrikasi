@@ -2,7 +2,7 @@
   "expo": {
     "name": "Çizim Canlanır",
     "slug": "cizim-canlanir",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -49,6 +49,18 @@
           "granularPermissions": [
             "video"
           ]
+        }
+      ],
+      [
+        "@reactvision/react-viro",
+        {
+          "provider": "none",
+          "telemetry": false,
+          "android": {
+            "xRMode": [
+              "AR"
+            ]
+          }
         }
       ]
     ]

@@ -23,6 +23,7 @@ type Props = {
   onDelete: (c: Character) => void;
   onRetry: () => void;
   onBack: () => void;
+  onAR: (chars: Character[]) => void;
 };
 
 const SCENES = [
@@ -57,7 +58,7 @@ async function toStage(c: Character): Promise<StageChar> {
   return { id: c.id, png: await pngDataUrl(c.id), walkStyle: c.walkStyle, parts: c.parts, acc: c.acc ?? [] };
 }
 
-export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, onDelete, onRetry, onBack }: Props) {
+export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, onDelete, onRetry, onBack, onAR }: Props) {
   const insets = useSafeAreaInsets();
   const stage = useRef<StageHandle>(null);
   const [onStage, setOnStage] = useState<Character[]>(initial);
@@ -478,6 +479,7 @@ export function Play({ initial, photo, settings, allChars, onCreated, onUpdate, 
             <Btn e="🎮" t="Oyun" onPress={() => setGames(true)} />
             <Btn e="👑" t="Giydir" onPress={() => { setDressId(focus()?.id ?? null); setDress(true); }} />
             <Btn e="🏞️" t="Yer" onPress={() => setScenes(true)} />
+            <Btn e="🪄" t="Gerçek AR" onPress={() => onAR(castRef.current)} />
             <Btn e="🚶" t="Yürü" onPress={() => act("walk")} />
             <Btn e="🦘" t="Zıpla" onPress={() => act("jump")} />
             <Btn e="💃" t="Dans" onPress={() => act("dance")} />
