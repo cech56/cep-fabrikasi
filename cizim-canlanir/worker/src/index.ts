@@ -196,12 +196,12 @@ function wav(pcm: Uint8Array, rate = 24000) {
 }
 async function tts(env: Env, text: string, voice: string): Promise<string> {
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY eksik");
-  const call = (model: string) =>
+  const call = (model: string, plain = false) =>
     fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `Bir çocuğa masal okur gibi neşeli, sıcak ve anlaşılır bir sesle, Türkçe oku:\n${speakable(text)}` }] }],
+        contents: [{ parts: [{ text: plain ? speakable(text) : `Neşeli, sıcak ve çocuklara masal anlatır gibi söyle: ${speakable(text)}` }] }],
         generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } },
       }),
     });
@@ -213,8 +213,13 @@ async function tts(env: Env, text: string, voice: string): Promise<string> {
   }
   if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 200)}`);
   ttsModel = model;
-  const data: any = await res.json();
-  const b64 = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
+  const audioOf = (d: any) => d?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
+  let b64 = audioOf(await res.json());
+  if (!b64) {
+    // model bazen ses yerine yazı döndürür: talimatsız, düz metinle bir kez daha dene
+    const r2 = await call(model, true);
+    if (r2.ok) b64 = audioOf(await r2.json());
+  }
   if (!b64) throw new Error("TTS boş");
   const bin = atob(b64);
   const pcm = new Uint8Array(bin.length);
