@@ -125,6 +125,7 @@ Kurallar:
 - Her beat bir "scene" seçer: sinif (okul sınıfı), park, sahil, uzay, kar (karlı orman), masa (çocuğun masası), ciftlik, sato (prenses şatosu), denizalti (deniz altı), parti (doğum günü partisi), kamp (gece kamp ateşi), dinozor (dinozor vadisi). Masal boyunca en az 4 farklı yerde geçsin ve yer değiştiğinde nasıl gittiklerini anlat (rüzgâr, sihirli kapı, roket, balon...).
 - Her beat'te karakterler "actions" ile bir şey yapar: who = sıra numarası, action = walk, jump, dance, spin, wave, sleep, flip (takla), giggle (gülmek).
 - Mutlu son, dostluk, cesaret, paylaşma gibi güzel bir mesaj. Korku, şiddet, ölüm, kötü söz, marka, gerçek kişi yok. Emoji kullanma.
+- Türkçe harfleri (ç, ğ, ı, İ, ö, ş, ü) her zaman doğru yaz; asla "cocuk", "kagit" gibi harfsiz yazma. Seslendirme bu metni okuyacak.
 - "title" kısa ve sevimli olsun. Son beat tatlı bir kapanış olsun.`;
 const STORY_SCHEMA = {
   type: "OBJECT",
@@ -155,7 +156,10 @@ const THEMES = [
 async function story(env: Env, chars: { name: string; kind: string }[], theme: string) {
   const list = chars.map((c, i) => `${i}: ${c.name}${c.kind ? ` (${c.kind})` : ""}`).join("\n");
   const topic = theme || THEMES[Math.floor(Math.random() * THEMES.length)];
-  const d = await geminiJson(env, STORY_SYSTEM, `Karakterler:\n${list}\nKonu: ${topic}\nBir masal yaz.`, STORY_SCHEMA);
+  const ask = () => geminiJson(env, STORY_SYSTEM, `Karakterler:\n${list}\nKonu: ${topic}\nBir masal yaz.`, STORY_SCHEMA);
+  let d = await ask();
+  // Türkçe harfsiz (ascii) gelirse seslendirme bozuk okur: bir kez daha yazdır
+  if (!/[çğışöüÇĞİŞÖÜ]/.test(JSON.stringify(d?.beats ?? ""))) d = await ask();
   const okWho = (a: any) => Number.isInteger(a?.who) && a.who >= 0 && a.who < chars.length;
   const beats = (Array.isArray(d.beats) ? d.beats : []).slice(0, 12).map((b: any) => {
     const narration = clean(b.narration ?? b.text, 400);
